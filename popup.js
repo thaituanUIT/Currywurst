@@ -66,12 +66,18 @@ function parseVerbformen(html, word, sourceUrl) {
   const main = heading?.closest("main, article") || heading?.parentElement?.parentElement || doc.body;
   const text = main?.innerText || "";
   const headingIndex = text.indexOf(title);
-  const entryText = headingIndex >= 0 ? text.slice(headingIndex, headingIndex + 1800).trim() : text.slice(0, 1800).trim();
+  let entryText = headingIndex >= 0 ? text.slice(headingIndex, headingIndex + 2600).trim() : text.slice(0, 2600).trim();
+  const tableHeading = entryText.search(new RegExp(`Declension of ${escapeRegExp(word)} in singular|Conjugation of ${escapeRegExp(word)} in`, "i"));
+  if (tableHeading > 0) entryText = entryText.slice(0, tableHeading).trim();
   const audio = [
-    ...main.querySelectorAll("audio[src], audio source[src]"),
+    ...main.querySelectorAll("audio[src], audio source[src], a[href]"),
   ]
-    .map((node) => node.src)
-    .filter((src) => src && /^https:\/\//.test(src));
+    .map((node) => node.src || node.href)
+    .filter((src) => {
+      if (!src || !/^https:\/\//.test(src)) return false;
+      try { return /\.(mp3|ogg|wav|m4a)(?:$|[?#])/i.test(new URL(src).pathname + new URL(src).search); }
+      catch { return false; }
+    });
   const ipa = [...entryText.matchAll(/\/[ˈˌɐ-ʒɡŋɔɛœɪʊʃçʁəːˑ̯̃̈.\-]*[ˈˌɐ-ʒɡŋɔɛœɪʊʃçʁəːˑ̯̃̈][ˈˌɐ-ʒɡŋɔɛœɪʊʃçʁəːˑ̯̃̈.\-]*\//giu)]
     .slice(0, 5)
     .map((match) => match[0]);
@@ -84,7 +90,12 @@ function parseVerbformen(html, word, sourceUrl) {
       label: link.textContent.trim(),
       url: new URL(link.href).href,
     }));
-  const description = entryText;
+  const detailLines = entryText.split("\n").map((line) => line.trim()).filter(Boolean);
+  const detailStart = detailLines.findIndex((line) => /^A1\s*[·.]|^[A-C][12]\s*[·.]/i.test(line));
+  const relevantLines = (detailStart >= 0 ? detailLines.slice(detailStart) : detailLines)
+    .filter((line) => !/^Declension of|^Conjugation of|^The most important forms|^\d+Comment|^☆|^Our website|^Handy on the go|^Help us|^Endings\b/i.test(line))
+    .slice(0, 18);
+  const description = relevantLines.join("\n");
   return {
     word,
     title,
@@ -108,4 +119,8 @@ function escapeHtml(value) {
 }
 function escapeAttr(value) {
   return escapeHtml(value);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
