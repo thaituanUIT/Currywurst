@@ -1,4 +1,4 @@
-# German Word Lookup
+# Currywurst
 
 Look up a German word while you read in Chrome or Microsoft Edge. The extension shows an English meaning, pronunciation, and available grammar or word forms from Verbformen.
 
@@ -9,8 +9,8 @@ This version is installed from a folder on your computer. Keep the folder where 
 1. Open Chrome and go to `chrome://extensions`, or open Edge and go to `edge://extensions`.
 2. Turn on **Developer mode** using the switch on the page.
 3. Click **Load unpacked**.
-4. Choose the German Word Lookup folder you downloaded or were given.
-5. If you do not see the extension icon, open the browser’s Extensions menu (the puzzle-piece icon) and pin **German Word Lookup**.
+4. Choose the Currywurst folder you downloaded or were given.
+5. If you do not see the extension icon, open the browser’s Extensions menu (the puzzle-piece icon) and pin **Currywurst**.
 
 ## Look up a word
 
@@ -27,6 +27,6 @@ You can also open the extension from the Extensions menu and type a word into th
 - **The lookup does not open:** Make sure a single word is selected, then right-click it again.
 - **No result appears:** Check your internet connection and try the lookup again. Verbformen must be reachable.
 - **The speaker does not sound like a recording:** When a recording is unavailable, the browser uses its German speech voice instead. Available voices depend on your computer.
-- **The extension changed but the browser still shows the old version:** Open the Extensions page and click the reload button on the German Word Lookup card.
+- **The extension changed but the browser still shows the old version:** Open the Extensions page and click the reload button on the Currywurst card.
 
 Each lookup is requested only when you choose to look up a word. The extension does not scan webpages or collect words in the background.

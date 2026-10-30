@@ -16,7 +16,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
   if (!word) return;
   await chrome.storage.local.set({ lookupWord: word });
   chrome.action.openPopup().catch(() => {
-    chrome.windows.create({ url: chrome.runtime.getURL("popup.html"), type: "popup", width: 390, height: 520 });
+    chrome.windows.create({ url: chrome.runtime.getURL("popup.html"), type: "popup", width: 540, height: 480 });
   });
 });
 

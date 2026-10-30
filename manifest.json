@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "German Word Lookup",
+  "name": "Currywurst",
   "version": "1.0.0",
   "description": "Look up selected German words on Verbformen.",
   "permissions": ["contextMenus", "storage"],
   "host_permissions": ["https://www.verbformen.com/*"],
   "background": { "service_worker": "background.js" },
   "action": {
-    "default_title": "German Word Lookup",
+    "default_title": "Currywurst · German Word Lookup",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
