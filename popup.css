@@ -12,7 +12,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; width: 600px; min-height: 250px; }
+body { margin: 0; width: 580px; min-height: 250px; }
 main { padding: 16px 22px 12px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .brand-mark {
