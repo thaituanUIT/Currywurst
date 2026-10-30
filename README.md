@@ -13,4 +13,10 @@ The extension sends one request when you explicitly trigger a lookup. It does no
 
 ## Implementation note
 
-Verbformen page structure and lookup routes may change. The current lookup uses the site's `?w=` search URL and extracts available page metadata, IPA-like text, audio links, and conjugation/declension links. If Verbformen changes its search form or markup, update `lookupVerbformen` in `background.js`.
+Verbformen page structure and lookup routes may change. The current lookup uses the site's `?w=` search URL and extracts available page metadata, IPA-like text, audio links, and conjugation/declension links. If Verbformen changes its search form or markup, update `parseVerbformen` in `parser.js`.
+
+## Regression checks
+
+Run `node --test tests/lookup.test.cjs` for search ordering and persistence. Open `tests/parser.html` in a browser for parser checks. The inline HTML fixtures are synthetic examples covering noun tables, an inflected verb, an adjective, and a missing entry; they do not verify current live site markup. No dependencies or build step are required.
+
+Lookups time out after 15 seconds and offer Retry on failure. Manual searches are saved locally alongside context-menu searches.

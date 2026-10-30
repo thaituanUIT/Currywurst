@@ -3,16 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>German lookup</title>
+  <title>Wortblick · German dictionary</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <main>
-    <header><div class="brand-mark">W</div><span>Wortblick</span><span class="source-label">GERMAN → ENGLISH</span></header>
-    <form id="search-form"><input id="word" autocomplete="off" placeholder="Look up a German word" aria-label="German word"><button aria-label="Search">↵</button></form>
-    <section id="result" aria-live="polite"><p class="hint">Select a word on a page, then right-click to look it up.</p></section>
-    <footer><a id="source" target="_blank" rel="noreferrer">Source: Verbformen ↗</a></footer>
+    <header><div class="brand-mark" aria-hidden="true">w</div><span class="brand-name">Wortblick</span><span class="source-label">DE → EN</span></header>
+    <label class="search-label" for="word">YOUR GERMAN WORD</label>
+    <form id="search-form"><input id="word" autocomplete="off" placeholder="e.g. schön, Haus, gehen" spellcheck="false" aria-label="German word"><button type="submit">Look up</button></form>
+    <section id="result" aria-live="polite"><div class="empty-state"><p class="eyebrow">A little clarity, word by word</p><h1>Make German<br>make sense.</h1><p class="hint">Type a word above to explore its meaning and forms. Or select text on any page and choose <strong>Look up German</strong> from the right-click menu.</p></div></section>
+    <footer><span>German, a word at a time.</span><a href="https://www.verbformen.com/" id="source" target="_blank" rel="noreferrer">Verbformen ↗</a></footer>
   </main>
+  <script src="parser.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
