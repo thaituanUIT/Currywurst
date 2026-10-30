@@ -34,16 +34,23 @@ async function runLookup(word) {
     result.innerHTML = `<p class="error">${escapeHtml(data?.error || "Lookup failed")}</p><p class="muted">Open the Verbformen result to view the complete entry.</p>`;
     return;
   }
-  const audioButton = data.audio.length ? '<button class="word-audio" id="play-audio" aria-label="Play pronunciation" title="Play pronunciation">▶</button>' : "";
+  const audioButton = '<button class="word-audio" id="play-audio" aria-label="Play pronunciation" title="Play German pronunciation">▶</button>';
   const tags = [data.level, data.partOfSpeech, data.grammar].filter(Boolean).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
-  const formItems = Object.entries(data.forms).filter(([, value]) => value).map(([label, value]) => `<div class="form-item"><span class="form-label">${escapeHtml(label)}</span><span class="form-value">${escapeHtml(value)}</span></div>`).join("");
-  result.innerHTML = `<div class="result-head"><div><h1 class="word-title">${escapeHtml(data.word)}</h1><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButton}</div><p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${formItems ? `<div class="forms">${formItems}</div>` : ""}`;
-  if (data.audio.length) {
-    document.querySelector("#play-audio").addEventListener("click", async () => {
-      try { await new Audio(data.audio[0]).play(); }
-      catch { result.insertAdjacentHTML("beforeend", '<p class="muted">Could not play this recording.</p>'); }
-    });
-  }
+  const inflectionSections = data.inflectionTables.map((table) => `<section class="inflection"><h2>${escapeHtml(table.title)}</h2><div class="table-scroll"><table>${table.rows.map((row, rowIndex) => `<tr>${row.map((cell) => rowIndex === 0 ? `<th>${escapeHtml(cell)}</th>` : `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</table></div></section>`).join("");
+  result.innerHTML = `<div class="result-head"><div><h1 class="word-title">${escapeHtml(data.word)}</h1><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButton}</div><p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${inflectionSections}`;
+  document.querySelector("#play-audio").addEventListener("click", async () => {
+    if (data.audio.length) {
+      try { await new Audio(data.audio[0]).play(); return; } catch { /* use speech fallback */ }
+    }
+    if ("speechSynthesis" in window) {
+      speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(data.word);
+      utterance.lang = "de-DE";
+      const germanVoice = speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith("de"));
+      if (germanVoice) utterance.voice = germanVoice;
+      speechSynthesis.speak(utterance);
+    }
+  });
 }
 
 function parseVerbformen(html, word, sourceUrl) {
@@ -57,9 +64,7 @@ function parseVerbformen(html, word, sourceUrl) {
   const main = heading?.closest("main, article") || heading?.parentElement?.parentElement || doc;
   const text = main?.innerText || main?.textContent || "";
   const headingIndex = text.indexOf(title);
-  let entryText = headingIndex >= 0 ? text.slice(headingIndex, headingIndex + 2600).trim() : text.slice(0, 2600).trim();
-  const tableHeading = entryText.search(new RegExp(`Declension of ${escapeRegExp(word)} in singular|Conjugation of ${escapeRegExp(word)} in`, "i"));
-  if (tableHeading > 0) entryText = entryText.slice(0, tableHeading).trim();
+  const entryText = headingIndex >= 0 ? text.slice(headingIndex).trim() : text;
   const audio = [
     ...main.querySelectorAll("audio[src], audio source[src], a[href]"),
   ]
@@ -89,6 +94,21 @@ function parseVerbformen(html, word, sourceUrl) {
   const article = formLines.find((line) => /^(der|die|das)\s+/i.test(line) && line.toLowerCase().includes(word.toLowerCase())) || "";
   const matchingForms = formLines.filter((line) => line.toLowerCase() === word.toLowerCase() || /^[\p{L}äöüÄÖÜß-]+$/.test(line) && line.length > 2);
   const forms = { Article: article, Singular: matchingForms[0] || word, Plural: matchingForms[1] || "" };
+  const caseLabels = /^(nom\.?|gen\.?|dat\.?|acc\.?|nominativ|genitiv|dativ|akkusativ)$/i;
+  const verbLabels = /^(ich|du|er|sie|es|wir|ihr|Sie|Infinitiv|Partizip|Imperativ|Konjunktiv|Präsens|Präteritum|Perfekt|Futur)$/i;
+  const inflectionTables = [...doc.querySelectorAll("table")].map((table) => {
+    const rows = [...table.querySelectorAll("tr")].map((row) => [...row.querySelectorAll("th,td")].map((cell) => cell.textContent.replace(/\s+/g, " ").trim()).filter(Boolean)).filter((row) => row.length > 1);
+    const labelRows = rows.filter((row) => caseLabels.test(row[0]) || verbLabels.test(row[0]));
+    const labels = labelRows.map((row) => row[0]);
+    const isCaseTable = labels.filter((label) => caseLabels.test(label)).length >= 3;
+    const isVerbTable = labels.filter((label) => verbLabels.test(label)).length >= 3;
+    if (!isCaseTable && !isVerbTable) return null;
+    let title = isVerbTable ? "Conjugation" : "Declension";
+    let previous = table.previousElementSibling;
+    while (previous && !/^H[2-4]$/.test(previous.tagName)) previous = previous.previousElementSibling;
+    if (previous?.textContent.trim()) title = previous.textContent.trim();
+    return { title, rows: rows.slice(0, 25) };
+  }).filter(Boolean).slice(0, 6);
   return {
     word,
     title,
@@ -97,6 +117,7 @@ function parseVerbformen(html, word, sourceUrl) {
     grammar,
     meaning,
     forms,
+    inflectionTables,
     excerpt: entryText.replace(/\s+/g, " ").slice(0, 900),
     ipa: [...new Set(ipa)],
     audio: [...new Set(audio)],
