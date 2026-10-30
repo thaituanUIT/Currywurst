@@ -36,8 +36,9 @@ async function runLookup(word) {
   }
   const audioButton = '<button class="word-audio" id="play-audio" aria-label="Play pronunciation" title="Play German pronunciation">▶</button>';
   const tags = [data.level, data.partOfSpeech, data.grammar].filter(Boolean).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
-  const inflectionSections = data.inflectionTables.map((table) => `<section class="inflection"><h2>${escapeHtml(table.title)}</h2><div class="table-scroll"><table>${table.rows.map((row, rowIndex) => `<tr>${row.map((cell) => rowIndex === 0 ? `<th>${escapeHtml(cell)}</th>` : `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</table></div></section>`).join("");
-  result.innerHTML = `<div class="result-head"><div><h1 class="word-title">${escapeHtml(data.word)}</h1><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButton}</div><p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${inflectionSections}`;
+  const inflectionSections = data.inflectionTables.map((table) => `<section class="inflection"><h2>${escapeHtml(table.title)}</h2><div class="table-scroll"><table>${table.rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</table></div></section>`).join("");
+  const formNote = data.lemma.toLowerCase() !== data.word.toLowerCase() ? `<p class="form-note">${escapeHtml(data.word)}${data.matchedForm ? ` · ${escapeHtml(data.matchedForm)}` : ""} is a form of <strong>${escapeHtml(data.lemma)}</strong></p>` : "";
+  result.innerHTML = `<div class="result-head"><div><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${formNote}<p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButton}</div><p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${inflectionSections}`;
   document.querySelector("#play-audio").addEventListener("click", async () => {
     if (data.audio.length) {
       try { await new Audio(data.audio[0]).play(); return; } catch { /* use speech fallback */ }
@@ -54,13 +55,18 @@ async function runLookup(word) {
 }
 
 function parseVerbformen(html, word, sourceUrl) {
-  // Keep the fetched page inert: Verbformen markup contains inline handlers,
-  // which must never be attached to the extension popup's live document.
+  // Strip executable markup before parsing. The extension CSP blocks inline
+  // event handlers, and none of the page's scripts are needed for text lookup.
+  const safeHtml = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+(?:href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\1/gi, "");
   const template = document.createElement("template");
-  template.innerHTML = html;
+  template.innerHTML = safeHtml;
   const doc = template.content;
   const heading = doc.querySelector("h1");
   const title = heading?.textContent?.trim() || word;
+  const lemma = title.match(/\b(?:verb|noun|adjective|adverb|pronoun|article)\s+([\p{L}äöüÄÖÜß-]+)/iu)?.[1] || word;
   const main = heading?.closest("main, article") || heading?.parentElement?.parentElement || doc;
   const text = main?.innerText || main?.textContent || "";
   const headingIndex = text.indexOf(title);
@@ -95,22 +101,36 @@ function parseVerbformen(html, word, sourceUrl) {
   const matchingForms = formLines.filter((line) => line.toLowerCase() === word.toLowerCase() || /^[\p{L}äöüÄÖÜß-]+$/.test(line) && line.length > 2);
   const forms = { Article: article, Singular: matchingForms[0] || word, Plural: matchingForms[1] || "" };
   const caseLabels = /^(nom\.?|gen\.?|dat\.?|acc\.?|nominativ|genitiv|dativ|akkusativ)$/i;
-  const verbLabels = /^(ich|du|er|sie|es|wir|ihr|Sie|Infinitiv|Partizip|Imperativ|Konjunktiv|Präsens|Präteritum|Perfekt|Futur)$/i;
-  const inflectionTables = [...doc.querySelectorAll("table")].map((table) => {
+  const verbLabels = /^(ich|du|er|sie|es|wir|ihr|Sie|infinitive|participle|imperative|present|imperfect|past|perfect|future|present subj\.?|imperf\.? subj\.?|infinitiv|partizip|imperativ|konjunktiv|präsens|präteritum|perfekt|futur)$/i;
+  const tableCandidates = [...doc.querySelectorAll("table")].map((table) => {
     const rows = [...table.querySelectorAll("tr")].map((row) => [...row.querySelectorAll("th,td")].map((cell) => cell.textContent.replace(/\s+/g, " ").trim()).filter(Boolean)).filter((row) => row.length > 1);
     const labelRows = rows.filter((row) => caseLabels.test(row[0]) || verbLabels.test(row[0]));
     const labels = labelRows.map((row) => row[0]);
     const isCaseTable = labels.filter((label) => caseLabels.test(label)).length >= 3;
-    const isVerbTable = labels.filter((label) => verbLabels.test(label)).length >= 3;
+    const verbRowCount = labels.filter((label) => /^(ich|du|er|sie|es|wir|ihr|Sie)$/i.test(label)).length;
+    const hasVerbFormLabels = labels.some((label) => /^(infinitive|participle|imperative|present|imperfect|past|perfect|future|present subj\.?|imperf\.? subj\.?|infinitiv|partizip|imperativ|konjunktiv|präsens|präteritum|perfekt|futur)$/i.test(label));
+    const isVerbTable = verbRowCount >= 3 || hasVerbFormLabels;
     if (!isCaseTable && !isVerbTable) return null;
     let title = isVerbTable ? "Conjugation" : "Declension";
     let previous = table.previousElementSibling;
     while (previous && !/^H[2-4]$/.test(previous.tagName)) previous = previous.previousElementSibling;
     if (previous?.textContent.trim()) title = previous.textContent.trim();
     return { title, rows: rows.slice(0, 25) };
-  }).filter(Boolean).slice(0, 6);
+  }).filter(Boolean);
+  const seenTables = new Set();
+  const inflectionTables = tableCandidates.filter((table) => {
+    const signature = JSON.stringify(table.rows);
+    if (seenTables.has(signature)) return false;
+    seenTables.add(signature);
+    return true;
+  });
+  const matchedRow = inflectionTables.flatMap((table) => table.rows.map((row) => ({ title: table.title, row })))
+    .find(({ row }) => row.some((cell) => cell.toLocaleLowerCase() === word.toLocaleLowerCase()));
+  const matchedForm = matchedRow ? `${matchedRow.row[0]} · ${matchedRow.title}` : "";
   return {
     word,
+    lemma,
+    matchedForm,
     title,
     level: level.replace(/[·.]$/, ""),
     partOfSpeech,
