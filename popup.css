@@ -12,8 +12,8 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; width: 520px; min-height: 250px; }
-main { padding: 16px 18px 12px; }
+body { margin: 0; width: 640px; min-height: 250px; }
+main { padding: 16px 22px 12px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .brand-mark {
   display: grid;
@@ -68,7 +68,7 @@ button:active { transform: translateY(1px); }
 .tag { border-radius: 6px; padding: 4px 8px; background: #f5ead8; color: #796046; font-size: 11px; }
 .form-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .form-note strong { color: var(--accent); }
-.inflection-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; margin-top: 18px; }
+.inflection-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 18px; }
 .inflection { min-width: 0; }
 .inflection:only-child { grid-column: 1 / -1; }
 .inflection h2 { margin: 0 0 9px; font-size: 11px; font-weight: 650; color: var(--muted); }
@@ -87,5 +87,3 @@ footer a { color: var(--accent); text-decoration: none; padding: 3px 0; }
 footer a:hover { text-decoration: underline; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
-@media (max-width: 519px) { body { width: 100%; } main { padding: 16px 12px; } }
-@media (max-width: 419px) { .inflection-grid { grid-template-columns: 1fr; } }
