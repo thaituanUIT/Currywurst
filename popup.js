@@ -102,19 +102,21 @@ function parseVerbformen(html, word, sourceUrl) {
   const forms = { Article: article, Singular: matchingForms[0] || word, Plural: matchingForms[1] || "" };
   const caseLabels = /^(nom\.?|gen\.?|dat\.?|acc\.?|nominativ|genitiv|dativ|akkusativ)$/i;
   const verbLabels = /^(ich|du|er|sie|es|wir|ihr|Sie|infinitive|participle|imperative|present|imperfect|past|perfect|future|present subj\.?|imperf\.? subj\.?|infinitiv|partizip|imperativ|konjunktiv|präsens|präteritum|perfekt|futur)$/i;
+  const adjectiveLabels = /^(masculine|feminine|neutral|neuter|plural|masc\.?|fem\.?|neut\.?|singular)$/i;
+  const sectionHeadings = [...doc.querySelectorAll("h2,h3,h4,h5")];
   const tableCandidates = [...doc.querySelectorAll("table")].map((table) => {
     const rows = [...table.querySelectorAll("tr")].map((row) => [...row.querySelectorAll("th,td")].map((cell) => cell.textContent.replace(/\s+/g, " ").trim()).filter(Boolean)).filter((row) => row.length > 1);
-    const labelRows = rows.filter((row) => caseLabels.test(row[0]) || verbLabels.test(row[0]));
+    const labelRows = rows.filter((row) => caseLabels.test(row[0]) || verbLabels.test(row[0]) || adjectiveLabels.test(row[0]));
     const labels = labelRows.map((row) => row[0]);
     const isCaseTable = labels.filter((label) => caseLabels.test(label)).length >= 3;
     const verbRowCount = labels.filter((label) => /^(ich|du|er|sie|es|wir|ihr|Sie)$/i.test(label)).length;
     const hasVerbFormLabels = labels.some((label) => /^(infinitive|participle|imperative|present|imperfect|past|perfect|future|present subj\.?|imperf\.? subj\.?|infinitiv|partizip|imperativ|konjunktiv|präsens|präteritum|perfekt|futur)$/i.test(label));
     const isVerbTable = verbRowCount >= 3 || hasVerbFormLabels;
-    if (!isCaseTable && !isVerbTable) return null;
+    const isAdjectiveTable = labels.some((label) => adjectiveLabels.test(label));
+    if (!isCaseTable && !isVerbTable && !isAdjectiveTable) return null;
     let title = isVerbTable ? "Conjugation" : "Declension";
-    let previous = table.previousElementSibling;
-    while (previous && !/^H[2-4]$/.test(previous.tagName)) previous = previous.previousElementSibling;
-    if (previous?.textContent.trim()) title = previous.textContent.trim();
+    const precedingHeadings = sectionHeadings.filter((heading) => heading.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).slice(-2);
+    if (precedingHeadings.length) title = precedingHeadings.map((heading) => heading.textContent.replace(/\s+/g, " ").trim()).filter(Boolean).join(" · ");
     return { title, rows: rows.slice(0, 25) };
   }).filter(Boolean);
   const seenTables = new Set();
