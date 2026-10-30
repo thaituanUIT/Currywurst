@@ -6,6 +6,18 @@
   "permissions": ["contextMenus", "storage"],
   "host_permissions": ["https://www.verbformen.com/*"],
   "background": { "service_worker": "background.js" },
-  "action": { "default_title": "German Word Lookup", "default_popup": "popup.html" },
-  "icons": { "16": "icon.svg", "48": "icon.svg", "128": "icon.svg" }
+  "action": {
+    "default_title": "German Word Lookup",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon-16.png",
+      "48": "icon-48.png",
+      "128": "icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  }
 }
