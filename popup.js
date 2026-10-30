@@ -48,24 +48,25 @@ async function runLookup(word) {
     document.querySelector("#retry").addEventListener("click", () => runLookup(word));
     return;
   }
-  const audioButton = '<button class="word-audio" id="play-audio" aria-label="Play pronunciation" title="Play German pronunciation">▶</button>';
+  const hasSeparateForm = data.lemma.toLocaleLowerCase() !== data.word.toLocaleLowerCase();
+  const audioButtons = `<div class="audio-controls"><button class="word-audio" data-speak="${escapeAttr(data.lemma)}" data-recording="${escapeAttr(data.audio?.[0] || "")}" aria-label="Play ${escapeAttr(data.lemma)} pronunciation" title="Play ${escapeAttr(data.lemma)}">▶</button><span>${escapeHtml(data.lemma)}</span>${hasSeparateForm ? `<button class="word-audio" data-speak="${escapeAttr(data.word)}" aria-label="Play ${escapeAttr(data.word)} pronunciation" title="Play ${escapeAttr(data.word)}">▶</button><span>${escapeHtml(data.word)}</span>` : ""}</div>`;
   const tags = [data.level, data.partOfSpeech, data.grammar].filter(Boolean).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
   const inflectionSections = data.inflectionTables.map((table) => `<section class="inflection"><h2>${escapeHtml(table.title)}</h2><div class="table-scroll"><table>${table.rows.map((row, ri) => `<tr>${row.map((cell, ci) => { const meta = table.cells[ri][ci]; const tag = meta.header ? "th" : "td"; return `<${tag} colspan="${meta.colSpan}" rowspan="${meta.rowSpan}">${escapeHtml(cell)}</${tag}>`; }).join("")}</tr>`).join("")}</table></div></section>`).join("");
   const formNote = data.lemma.toLowerCase() !== data.word.toLowerCase() ? `<p class="form-note">${escapeHtml(data.word)}${data.matchedForm ? ` · ${escapeHtml(data.matchedForm)}` : ""} is a form of <strong>${escapeHtml(data.lemma)}</strong></p>` : "";
-  result.innerHTML = `<div class="result-head"><div><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${formNote}<p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButton}</div><p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${inflectionSections}`;
-  document.querySelector("#play-audio").addEventListener("click", async () => {
-    if (data.audio.length) {
-      try { await new Audio(data.audio[0]).play(); return; } catch { /* use speech fallback */ }
+  result.innerHTML = `<div class="result-head"><div><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${formNote}<p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div><p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${inflectionSections}`;
+  result.querySelectorAll("[data-speak]").forEach((button) => button.addEventListener("click", async () => {
+    const recording = button.dataset.recording;
+    if (recording) {
+      try { await new Audio(recording).play(); return; } catch { /* fall back to German speech */ }
     }
-    if ("speechSynthesis" in window) {
-      speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(data.word);
-      utterance.lang = "de-DE";
-      const germanVoice = speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith("de"));
-      if (germanVoice) utterance.voice = germanVoice;
-      speechSynthesis.speak(utterance);
-    }
-  });
+    if (!("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(button.dataset.speak);
+    utterance.lang = "de-DE";
+    const voice = speechSynthesis.getVoices().find((candidate) => candidate.lang.toLowerCase().startsWith("de"));
+    if (voice) utterance.voice = voice;
+    speechSynthesis.speak(utterance);
+  }));
 }
 
 

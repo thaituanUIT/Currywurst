@@ -57,3 +57,4 @@ footer a:hover { text-decoration: underline; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 379px) { body { width: 100%; } main { padding: 16px 12px; } }
+.audio-controls{display:grid;grid-template-columns:32px auto;align-items:center;justify-items:start;gap:4px 7px;margin-left:auto;color:var(--muted);font-size:9px}.audio-controls .word-audio{grid-column:1;width:28px;height:28px}.audio-controls span{grid-column:2;grid-row:auto}.audio-controls button:nth-of-type(2){grid-row:2}.audio-controls span:nth-of-type(2){grid-row:2}
