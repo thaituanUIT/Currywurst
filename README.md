@@ -1,22 +1,32 @@
 # German Word Lookup
 
-An on-demand Chromium extension for looking up selected German text on Verbformen. The same unpacked extension works in Chrome and Microsoft Edge.
+Look up a German word while you read in Chrome or Microsoft Edge. The extension shows an English meaning, pronunciation, and available grammar or word forms from Verbformen.
 
-## Install for local use
+## Install the extension
 
-1. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
-2. Enable Developer mode.
-3. Choose **Load unpacked** and select this directory.
-4. Select a German word on a page, right-click, and choose **Look up German: …**.
+This version is installed from a folder on your computer. Keep the folder where it is; the browser needs it to stay there.
 
-The extension sends one request when you explicitly trigger a lookup. It does not crawl or prefetch words. The result includes a source link; pronunciation audio is shown when a direct audio URL is exposed by the fetched result page.
+1. Open Chrome and go to `chrome://extensions`, or open Edge and go to `edge://extensions`.
+2. Turn on **Developer mode** using the switch on the page.
+3. Click **Load unpacked**.
+4. Choose the German Word Lookup folder you downloaded or were given.
+5. If you do not see the extension icon, open the browser’s Extensions menu (the puzzle-piece icon) and pin **German Word Lookup**.
 
-## Implementation note
+## Look up a word
 
-Verbformen page structure and lookup routes may change. The current lookup uses the site's `?w=` search URL and extracts available page metadata, IPA-like text, audio links, and conjugation/declension links. If Verbformen changes its search form or markup, update `parseVerbformen` in `parser.js`.
+1. Open a webpage that contains German text.
+2. Select one word.
+3. Right-click the selection and choose **Look up German**.
+4. The lookup card shows the word and its meaning. Use the speaker buttons to hear the selected word and its dictionary form when they differ.
+5. Select a noun, adjective, or verb entry to see the grammar or word forms that are available. Use **Source: Verbformen** to open the full entry on Verbformen.
 
-## Regression checks
+You can also open the extension from the Extensions menu and type a word into the search box.
 
-Run `node --test tests/lookup.test.cjs` for search ordering and persistence. Open `tests/parser.html` in a browser for parser checks. The inline HTML fixtures are synthetic examples covering noun tables, an inflected verb, an adjective, and a missing entry; they do not verify current live site markup. No dependencies or build step are required.
+## If something goes wrong
 
-Lookups time out after 15 seconds and offer Retry on failure. Manual searches are saved locally alongside context-menu searches.
+- **The lookup does not open:** Make sure a single word is selected, then right-click it again.
+- **No result appears:** Check your internet connection and try the lookup again. Verbformen must be reachable.
+- **The speaker does not sound like a recording:** When a recording is unavailable, the browser uses its German speech voice instead. Available voices depend on your computer.
+- **The extension changed but the browser still shows the old version:** Open the Extensions page and click the reload button on the German Word Lookup card.
+
+Each lookup is requested only when you choose to look up a word. The extension does not scan webpages or collect words in the background.
