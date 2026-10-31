@@ -205,7 +205,7 @@ function renderInflections(tables) {
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(table);
   }
-  return [...groups].map(([group, tables]) => `<section class="inflection-group">${group ? `<h2 class="group-title">${escapeHtml(group)}</h2>` : ""}${tables.map((table) => `<section class="inflection"><h3>${escapeHtml(table.title)}</h3><div class="table-scroll"><table><colgroup><col class="label-column"></colgroup>${table.rows.map((row, ri) => `<tr>${row.map((cell, ci) => { const meta = table.cells[ri][ci]; const tag = meta.header ? "th" : "td"; return `<${tag} colspan="${meta.colSpan}" rowspan="${meta.rowSpan}">${escapeHtml(cell)}</${tag}>`; }).join("")}</tr>`).join("")}</table></div></section>`).join("")}</section>`).join("");
+  return [...groups].map(([group, tables]) => `<section class="inflection-group">${group ? `<h2 class="group-title">${escapeHtml(group)}</h2>` : ""}${tables.map((table) => `<section class="inflection"><h3>${escapeHtml(table.title)}</h3><div class="table-scroll"><table lang="de"><colgroup><col class="label-column"></colgroup>${table.rows.map((row, ri) => `<tr>${row.map((cell, ci) => { const meta = table.cells[ri][ci]; const tag = meta.header ? "th" : "td"; return `<${tag} lang="${meta.header ? "en" : "de"}" colspan="${meta.colSpan}" rowspan="${meta.rowSpan}">${escapeHtml(cell)}</${tag}>`; }).join("")}</tr>`).join("")}</table></div></section>`).join("")}</section>`).join("");
 }
 
 function bindPronunciation() {

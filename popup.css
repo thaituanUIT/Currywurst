@@ -99,7 +99,7 @@ button:active { transform: translateY(1px); }
 .table-scroll { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .inflection table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
 .inflection .label-column { width: 88px; }
-.inflection th, .inflection td { padding: 8px 10px; border-bottom: 1px solid #efe4d4; text-align: left; overflow-wrap: anywhere; }
+.inflection th, .inflection td { padding: 8px 10px; border-bottom: 1px solid #efe4d4; text-align: left; word-break: normal; overflow-wrap: normal; hyphens: auto; hyphenate-character: "-"; }
 .inflection th { font-weight: 600; background: var(--table-head); color: #74573b; }
 .inflection tr:nth-child(even) td { background: var(--table-stripe); }
 .inflection tr:last-child > * { border-bottom: 0; }
