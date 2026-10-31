@@ -12,7 +12,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; width: 580px; min-height: 250px; }
+body { margin: 0; width: 560px; min-height: 250px; }
 main { padding: 16px 22px 12px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .brand-mark {
@@ -73,8 +73,9 @@ button:active { transform: translateY(1px); }
 .inflection:only-child { grid-column: 1 / -1; }
 .inflection h2 { margin: 0 0 9px; font-size: 11px; font-weight: 650; color: var(--muted); }
 .table-scroll { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
-.inflection table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.inflection th, .inflection td { padding: 8px 10px; border-bottom: 1px solid #efe4d4; text-align: left; white-space: nowrap; }
+.inflection table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.inflection .label-column { width: 88px; }
+.inflection th, .inflection td { padding: 8px 10px; border-bottom: 1px solid #efe4d4; text-align: left; overflow-wrap: anywhere; }
 .inflection th { font-weight: 600; background: #f7ecd9; color: #74573b; }
 .inflection tr:nth-child(even) td { background: #fcf7ed; }
 .inflection tr:last-child > * { border-bottom: 0; }
