@@ -23,10 +23,11 @@ chrome.storage.local.get(["lookupWord", "lookupMode", "lookupAuto", "lookupHint"
 modeToggle.addEventListener("click", () => {
   inputEdited = true;
   cancelLookup();
+  input.value = "";
   setMode(mode === "de-en" ? "en-de" : "de-en");
-  chrome.storage.local.set({ lookupMode: mode, lookupAuto: false }).catch(() => {});
-  if (input.value.trim()) runLookup(input.value.trim());
-  else renderEmptyState();
+  chrome.storage.local.set({ lookupWord: "", lookupMode: mode, lookupAuto: false, lookupHint: "" }).catch(() => {});
+  renderEmptyState();
+  input.focus();
 });
 document.querySelector("#search-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -47,6 +48,7 @@ function setMode(nextMode) {
 }
 
 function renderEmptyState() {
+  result.scrollTop = 0;
   result.innerHTML = `<div class="empty-state"><p class="eyebrow">A little clarity, word by word</p><h1>${mode === "en-de" ? "Find the German word." : "Make German make sense."}</h1><p class="hint">Select text on a page and choose <strong>Look up with Currywurst</strong>. The language is detected automatically. For typed searches, click the language button to choose the direction.</p></div>`;
 }
 

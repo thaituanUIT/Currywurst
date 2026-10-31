@@ -25,7 +25,7 @@ This version is installed from a folder on your computer. Keep the folder where 
 5. English searches show a list of German matches. Click a match to open its grammar, then **Back to results** to return to the list.
 6. Use **Verbformen ↗** below the card to open the full source page.
 
-You can also open the extension from the Extensions menu and type a word into the search box. The **DE → EN** button shows the current direction: German to English. Click it once to switch to **EN → DE**, and click again to switch back. Currywurst remembers your last mode. Each mode has its own soft cream, mustard, and paprika colors.
+You can also open the extension from the Extensions menu and type a word into the search box. The **DE → EN** button shows the current direction: German to English. Click it once to switch to **EN → DE**, and click again to switch back. Switching direction clears the previous word and results, ready for a new search. Currywurst remembers your last mode. Each mode has its own soft cream, mustard, and paprika colors.
 
 Some words, such as “Gift” or “Bank”, exist in both languages. If the automatic choice is wrong, click the language button to reverse the direction and look up the word again.
 

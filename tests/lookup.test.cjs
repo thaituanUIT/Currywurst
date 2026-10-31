@@ -7,7 +7,7 @@ const parserContext = vm.createContext({ URL });
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 
 function makeElement(dataset = {}) {
-  return { dataset, value: '', innerHTML: '', listeners: {}, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; } };
+  return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; } };
 }
 function harness(savedState = {}) {
   const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry'].map(id => [id, makeElement()]));
@@ -49,7 +49,7 @@ test('latest search wins and manual searches persist', async () => {
   assert.equal(h.saved.at(-1).lookupWord, 'neu');
 });
 
-test('mode button cancels an old request and preserves English search settings', async () => {
+test('mode switch clears the old word and waits for a new explicit search', async () => {
   const h = harness();
   await tick();
   const old = h.context.runLookup('alt');
@@ -57,13 +57,19 @@ test('mode button cancels an old request and preserves English search settings',
   h.elements['#mode-toggle'].listeners.click();
   assert.equal(h.requests[0].options.signal.aborted, true);
   assert.match(h.elements['#mode-toggle'].textContent, /EN → DE/);
+  assert.equal(h.elements['#word'].value, '');
+  assert.equal(h.elements['#word'].focused, true);
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.saved.at(-1).lookupWord, '');
+  h.elements['#word'].value = 'small';
+  const search = h.context.runLookup('small');
   h.respond(1); // English search form
   await tick();
   const url = new URL(h.requests[2].url);
   assert.equal(url.searchParams.get('language'), 'en');
   assert.equal(url.searchParams.get('w'), 'small');
   h.respond(2);
-  await tick();
+  await search;
   assert.match(h.elements['#result'].innerHTML, /klein/);
   assert.match(h.elements['#result'].innerHTML, /data-language="en-GB"/);
   assert.match(h.elements['#result'].innerHTML, /data-language="de-DE"/);
@@ -193,12 +199,27 @@ test('manual direction change prevents an automatic fallback from overwriting re
   await tick();
   h.elements['#word'].value = 'Bruder';
   h.elements['#mode-toggle'].listeners.click();
-  h.respond(2); // explicit manual lookup wins
+  assert.equal(h.elements['#word'].value, '');
+  assert.equal(h.requests.length, 2);
   await tick();
   const displayed = h.elements['#result'].innerHTML;
   h.respond(1); // obsolete automatic English request must not try German next
   await automatic;
-  assert.equal(h.requests.length, 3);
+  assert.equal(h.requests.length, 2);
   assert.equal(h.elements['#result'].innerHTML, displayed);
   assert.equal(h.saved.at(-1).lookupAuto, false);
+});
+
+
+test('switching back to German also clears the saved query without sending a lookup', async () => {
+  const h = harness();
+  await tick();
+  h.context.setMode('en-de');
+  h.elements['#word'].value = 'brother';
+  h.elements['#mode-toggle'].listeners.click();
+  assert.equal(h.elements['#word'].value, '');
+  assert.equal(h.saved.at(-1).lookupWord, '');
+  assert.equal(h.saved.at(-1).lookupMode, 'de-en');
+  assert.equal(h.requests.length, 0);
+  assert.match(h.elements['#result'].innerHTML, /Make German make sense/);
 });

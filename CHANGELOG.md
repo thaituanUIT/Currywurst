@@ -12,6 +12,7 @@ Major features and fixes in Currywurst. Version numbers follow the extension man
 
 ### Fixed
 
+- Clear the search box and previous results when switching lookup direction, cancel pending requests, and focus the input without automatically searching the old word.
 - Resolve shortened singular imperatives such as **buchstabier → buchstabieren**, checking the original selection against the source's imperative forms.
 - Recognize optional letters, slash alternatives, and footnote markers in word forms.
 - Match separated verb particles and joined subordinate-clause forms, plus irregular adjective comparison forms.
