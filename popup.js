@@ -11,12 +11,12 @@ let inputEdited = false;
 let englishForm;
 
 input.addEventListener("input", () => { inputEdited = true; });
-chrome.storage.local.get(["lookupWord", "lookupMode"]).then(({ lookupWord, lookupMode }) => {
+chrome.storage.local.get(["lookupWord", "lookupMode", "lookupAuto", "lookupHint"]).then(({ lookupWord, lookupMode, lookupAuto, lookupHint }) => {
   if (inputEdited || lookupSequence !== 0) return;
   setMode(lookupMode === "en-de" ? "en-de" : "de-en");
   if (lookupWord) {
     input.value = lookupWord;
-    runLookup(lookupWord);
+    runLookup(lookupWord, null, { automatic: lookupAuto === true, hint: lookupHint });
   } else renderEmptyState();
 });
 
@@ -24,7 +24,7 @@ modeToggle.addEventListener("click", () => {
   inputEdited = true;
   cancelLookup();
   setMode(mode === "de-en" ? "en-de" : "de-en");
-  chrome.storage.local.set({ lookupMode: mode }).catch(() => {});
+  chrome.storage.local.set({ lookupMode: mode, lookupAuto: false }).catch(() => {});
   if (input.value.trim()) runLookup(input.value.trim());
   else renderEmptyState();
 });
@@ -37,9 +37,9 @@ function setMode(nextMode) {
   mode = nextMode;
   const english = mode === "en-de";
   document.documentElement.dataset.mode = mode;
-  modeToggle.innerHTML = `${english ? "EN → DE" : "DE → EN"} <span aria-hidden="true">⇄</span>`;
+  modeToggle.textContent = english ? "EN → DE" : "DE → EN";
   modeToggle.setAttribute("aria-pressed", String(english));
-  modeToggle.setAttribute("aria-label", `Switch to ${english ? "German to English" : "English to German"}`);
+  modeToggle.setAttribute("aria-label", `${english ? "English to German" : "German to English"}. Click to switch to ${english ? "German to English" : "English to German"}`);
   searchLabel.textContent = english ? "YOUR ENGLISH WORD" : "YOUR GERMAN WORD";
   input.placeholder = english ? "e.g. small, brother, make" : "e.g. schön, Haus, gehen";
   input.setAttribute("aria-label", english ? "English word" : "German word");
@@ -47,7 +47,7 @@ function setMode(nextMode) {
 }
 
 function renderEmptyState() {
-  result.innerHTML = `<div class="empty-state"><p class="eyebrow">A little clarity, word by word</p><h1>${mode === "en-de" ? "Find the German word." : "Make German make sense."}</h1><p class="hint">Type a word above, or select text on a page and choose a Currywurst lookup from the right-click menu.</p></div>`;
+  result.innerHTML = `<div class="empty-state"><p class="eyebrow">A little clarity, word by word</p><h1>${mode === "en-de" ? "Find the German word." : "Make German make sense."}</h1><p class="hint">Select text on a page and choose <strong>Look up with Currywurst</strong>. The language is detected automatically. For typed searches, click the language button to choose the direction.</p></div>`;
 }
 
 function stopPronunciation() {
@@ -72,6 +72,7 @@ async function fetchPage(url, controller, options = {}) {
 async function searchEnglish(word, controller) {
   if (!englishForm) {
     const page = await fetchPage("https://www.verbformen.com/en-de/", controller);
+    controller.signal.throwIfAborted();
     englishForm = parseEnglishSearchForm(page.html, page.sourceUrl);
   }
   const fields = new URLSearchParams(englishForm.fields);
@@ -84,19 +85,56 @@ async function searchEnglish(word, controller) {
   return fetchPage(url.href, controller);
 }
 
-async function runLookup(word, detail = null) {
+async function detectAndLookup(word, hint, preferredMode, controller) {
+  const firstMode = /[äöüß]/i.test(word) ? "de-en" : hint === "en" ? "en-de" : hint === "de" ? "de-en" : preferredMode;
+  const directions = [firstMode, firstMode === "de-en" ? "en-de" : "de-en"];
+  for (const direction of directions) {
+    controller.signal.throwIfAborted();
+    if (direction === "de-en") {
+      const page = await fetchPage(`https://www.verbformen.com/?w=${encodeURIComponent(word)}`, controller);
+      controller.signal.throwIfAborted();
+      const data = parseVerbformen(page.html, word, page.sourceUrl);
+      if (isGermanEntryMatch(data, word)) return { mode: direction, data, sourceUrl: page.sourceUrl };
+    } else {
+      const page = await searchEnglish(word, controller);
+      controller.signal.throwIfAborted();
+      const entries = parseEnglishResults(page.html, word, page.sourceUrl);
+      if (entries.length) return { mode: direction, state: { query: word, entries, sourceUrl: page.sourceUrl } };
+    }
+  }
+  return null;
+}
+
+async function runLookup(word, detail = null, options = {}) {
   if (!word) return;
   cancelLookup();
   const sequence = lookupSequence;
   const controller = new AbortController();
   activeController = controller;
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  if (!detail) chrome.storage.local.set({ lookupWord: word, lookupMode: mode }).catch(() => {});
+  const requestedMode = mode;
+  const timeout = setTimeout(() => controller.abort(), options.automatic ? 25000 : 15000);
+  if (!detail) chrome.storage.local.set(options.automatic
+    ? { lookupWord: word, lookupAuto: true, lookupHint: options.hint || "" }
+    : { lookupWord: word, lookupMode: mode, lookupAuto: false }).catch(() => {});
   sourceLink.href = detail?.entry.url || `https://www.verbformen.com/${mode === "en-de" ? "en-de/" : ""}?w=${encodeURIComponent(word)}`;
   result.innerHTML = '<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span>Finding your word…</div>';
   result.scrollTop = 0;
   try {
-    if (mode === "en-de" && !detail) {
+    if (options.automatic && !detail) {
+      const match = await detectAndLookup(word, options.hint, requestedMode, controller);
+      if (sequence !== lookupSequence) return;
+      if (!match) {
+        result.innerHTML = '<p class="muted">No matching German or English entry found. Try another spelling or choose a direction using the language button above.</p>';
+        return;
+      }
+      setMode(match.mode);
+      chrome.storage.local.set({ lookupMode: match.mode, lookupAuto: false }).catch(() => {});
+      if (match.state) renderEnglishResults(match.state);
+      else {
+        sourceLink.href = match.sourceUrl;
+        renderGermanEntry(match.data);
+      }
+    } else if (requestedMode === "en-de" && !detail) {
       const page = await searchEnglish(word, controller);
       const entries = parseEnglishResults(page.html, word, page.sourceUrl);
       if (sequence !== lookupSequence) return;
@@ -111,7 +149,7 @@ async function runLookup(word, detail = null) {
   } catch (error) {
     if (sequence !== lookupSequence) return;
     result.innerHTML = `${detail ? '<button class="back-button" id="back-results">← Back to results</button>' : ""}<p class="error">${escapeHtml(controller.signal.aborted ? "Lookup timed out. Please try again." : error.message)}</p><p class="muted">You can also open the dictionary using the source link below.</p><button id="retry">Retry</button>`;
-    document.querySelector("#retry").addEventListener("click", () => runLookup(word, detail));
+    document.querySelector("#retry").addEventListener("click", () => runLookup(word, detail, options));
     if (detail) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderEnglishResults(detail.backState); });
   } finally {
     clearTimeout(timeout);

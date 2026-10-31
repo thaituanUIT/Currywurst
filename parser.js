@@ -139,6 +139,20 @@ function englishGlossMatches(gloss, query) {
   return Boolean(needle) && gloss.split(/[,;]+/).some((sense) => normalize(sense) === needle);
 }
 
+function isGermanEntryMatch(entry, word) {
+  // Search may redirect an English query or unknown spelling to another word.
+  // Only accept a German headword or an inflected form present in its tables.
+  if (!/\b(?:verb|noun|adjective|adverb|pronoun|article)\s+/i.test(entry.title || "")) return false;
+  if (!entry.meaning && !entry.inflectionTables?.length) return false;
+  const normalize = (value) => String(value).normalize("NFC").toLocaleLowerCase("de-DE").replace(/[·⁰¹²³⁴⁵⁶⁷⁸⁹]/g, "").replace(/\s+/g, " ").trim();
+  const query = normalize(word);
+  if (!query) return false;
+  if (normalize(entry.lemma) === query) return true;
+  return (entry.inflectionTables || []).some((table) => table.rows.some((row) =>
+    row.some((cell) => normalize(cell) === query) || normalize(row.join(" ")).split(" ").includes(query),
+  ));
+}
+
 function dictionaryEntryUrl(href, baseUrl) {
   try {
     const url = new URL(href, baseUrl);

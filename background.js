@@ -1,22 +1,36 @@
-const LOOKUP_MENUS = {
-  "german-word-lookup": { mode: "de-en", title: "Look up in English: %s" },
-  "english-word-lookup": { mode: "en-de", title: "Look up in German: %s" },
-};
+const MENU_ID = "german-word-lookup";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
-    for (const [id, menu] of Object.entries(LOOKUP_MENUS)) {
-      chrome.contextMenus.create({ id, title: menu.title, contexts: ["selection"] });
-    }
+    chrome.contextMenus.create({ id: MENU_ID, title: "Look up with Currywurst: %s", contexts: ["selection"] });
   });
 });
 
-chrome.contextMenus.onClicked.addListener(async (info) => {
-  const menu = LOOKUP_MENUS[info.menuItemId];
-  if (!menu || !info.selectionText) return;
+// This function runs only after the user explicitly invokes the lookup.
+// Read the language of the selection's nearest marked element, not page text.
+function readSelectionLanguage() {
+  const node = window.getSelection()?.anchorNode;
+  const element = node?.nodeType === 1 ? node : node?.parentElement;
+  const language = element?.closest("[lang]")?.getAttribute("lang") || document.documentElement.lang || "";
+  return language.toLowerCase().split(/[-_]/)[0];
+}
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== MENU_ID || !info.selectionText) return;
   const word = info.selectionText.trim().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
   if (!word) return;
-  await chrome.storage.local.set({ lookupWord: word, lookupMode: menu.mode });
+  let hint = "";
+  if (tab?.id != null) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, frameIds: [info.frameId || 0] },
+        func: readSelectionLanguage,
+      });
+      const language = results[0]?.result;
+      if (language === "en" || language === "de") hint = language;
+    } catch { /* Restricted pages can still use dictionary-based detection. */ }
+  }
+  await chrome.storage.local.set({ lookupWord: word, lookupAuto: true, lookupHint: hint });
   try {
     await chrome.action.openPopup();
   } catch {
