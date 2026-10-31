@@ -51,7 +51,7 @@ header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .source-label:hover { background: var(--soft); }
 .search-label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .1em; }
 form { display: flex; gap: 7px; margin-bottom: 14px; }
-input { min-width: 0; flex: 1; height: 44px; border: 1px solid var(--control-line); border-radius: 10px; padding: 0 12px; background: var(--paper); color: inherit; font: inherit; }
+input { min-width: 0; flex: 1; height: 44px; border: 1px solid var(--control-line); border-radius: 10px; padding: 0 12px; background: var(--paper); color: inherit; font: inherit; font-size: 18px; }
 input::placeholder { color: #8a7b69; }
 button { font: inherit; cursor: pointer; transition: background .15s, transform .15s; }
 form button, #retry { border: 1px solid #e8c783; border-radius: 10px; background: var(--amber); color: #59401f; padding: 0 14px; font-size: 12px; font-weight: 650; }
