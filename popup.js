@@ -125,7 +125,8 @@ async function runLookup(word, detail = null, options = {}) {
     ? { lookupWord: word, lookupAuto: true, lookupHint: options.hint || "" }
     : { lookupWord: word, lookupMode: mode, lookupAuto: false }).catch(() => {});
   sourceLink.href = detail?.entry.url || `https://www.verbformen.com/${mode === "en-de" ? "en-de/" : ""}?w=${encodeURIComponent(word)}`;
-  result.innerHTML = '<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span>Finding your word…</div>';
+  const message = loadingMessage(word, detail, options, requestedMode);
+  result.innerHTML = `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
   result.scrollTop = 0;
   try {
     if (options.automatic && !detail) {
@@ -173,6 +174,14 @@ async function runLookup(word, detail = null, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function loadingMessage(word, detail, options, direction) {
+  if (detail?.previousData) return `Loading ${detail.entry.label || detail.entry.lemma}…`;
+  if (detail) return `Loading grammar for ${detail.entry.lemma}…`;
+  if (options.automatic) return "Checking language and meaning…";
+  if (direction === "en-de") return `Finding translations for ${word}…`;
+  return `Looking up ${word}…`;
 }
 
 function speakerButton(word, language, recording = "") {

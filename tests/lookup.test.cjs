@@ -64,6 +64,7 @@ test('mode switch clears the old word and waits for a new explicit search', asyn
   assert.equal(h.saved.at(-1).lookupWord, '');
   h.elements['#word'].value = 'small';
   const search = h.context.runLookup('small');
+  assert.match(h.elements['#result'].innerHTML, /Finding translations for small/);
   h.respond(1); // English search form
   await tick();
   const url = new URL(h.requests[2].url);
@@ -91,6 +92,7 @@ test('opening grammar and returning uses the English result list without refetch
   h.respond(1);
   await search;
   h.entryButton.listeners.click();
+  assert.match(h.elements['#result'].innerHTML, /Loading grammar for klein/);
   assert.equal(h.requests[2].url, 'https://www.verbformen.com/declension/adjectives/klein.htm');
   h.respond(2);
   await tick();
@@ -240,6 +242,7 @@ test('switching a noun gender loads the chosen entry and preserves the original 
   assert.equal(h.requests.length, 0);
   h.context.parseVerbformen = (_, word) => ({ ...data, word, article: 'das', sourceUrl: variants[1].url, usageNotes: ['Southern Germany, Austria, Switzerland'] });
   h.variantButton.listeners.click();
+  assert.match(h.elements['#result'].innerHTML, /Loading das Vokabel/);
   assert.equal(h.requests[0].url, variants[1].url);
   h.respond(0);
   await tick();
