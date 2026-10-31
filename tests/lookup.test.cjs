@@ -7,13 +7,14 @@ const parserContext = vm.createContext({ URL });
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 
 function makeElement(dataset = {}) {
-  return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; } };
+  return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; } };
 }
 function harness(savedState = {}) {
   const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry'].map(id => [id, makeElement()]));
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
   const entryButton = makeElement({ entry: '0' });
-  elements['#result'].querySelectorAll = selector => selector === '[data-entry]' ? [entryButton] : [];
+  const variantButton = makeElement({ nounVariant: '1' });
+  elements['#result'].querySelectorAll = selector => selector === '[data-entry]' ? [entryButton] : selector === '[data-noun-variant]' && elements['#result'].innerHTML.includes('data-noun-variant') ? [variantButton] : [];
   const requests = [], saved = [];
   const context = vm.createContext({
     document: { documentElement: { dataset: {} }, querySelector: id => elements[id] }, window: {},
@@ -30,7 +31,7 @@ function harness(savedState = {}) {
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
   const respond = (index) => requests[index].resolve({ ok: true, text: async () => '', url: requests[index].url });
-  return { context, elements, requests, saved, respond, entryButton };
+  return { context, elements, requests, saved, respond, entryButton, variantButton };
 }
 
 test('latest search wins and manual searches persist', async () => {
@@ -222,4 +223,28 @@ test('switching back to German also clears the saved query without sending a loo
   assert.equal(h.saved.at(-1).lookupMode, 'de-en');
   assert.equal(h.requests.length, 0);
   assert.match(h.elements['#result'].innerHTML, /Type a word/);
+});
+
+
+test('switching a noun gender loads the chosen entry and preserves the original plural', async () => {
+  const h = harness();
+  await tick();
+  const variants = [
+    { article: 'die', lemma: 'Vokabel', label: 'die Vokabel', url: 'https://www.verbformen.com/declension/nouns/Vokabel.htm' },
+    { article: 'das', lemma: 'Vokabel', label: 'das Vokabel', url: 'https://www.verbformen.com/declension/nouns/Vokabel_neut.htm' },
+  ];
+  const data = { word: 'Vokabeln', lemma: 'Vokabel', article: 'die', meaning: 'word', variants, ipa: [], audio: [], inflectionTables: [], sourceUrl: variants[0].url };
+  h.context.renderGermanEntry(data);
+  assert.match(h.elements['#result'].innerHTML, /die Vokabel/);
+  assert.match(h.elements['#result'].innerHTML, /das Vokabel/);
+  assert.equal(h.requests.length, 0);
+  h.context.parseVerbformen = (_, word) => ({ ...data, word, article: 'das', sourceUrl: variants[1].url, usageNotes: ['Southern Germany, Austria, Switzerland'] });
+  h.variantButton.listeners.click();
+  assert.equal(h.requests[0].url, variants[1].url);
+  h.respond(0);
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /data-noun-variant="1" aria-pressed="true"/);
+  assert.match(h.elements['#result'].innerHTML, /Southern Germany, Austria, Switzerland/);
+  assert.match(h.elements['#result'].innerHTML, /data-speak="Vokabeln"/);
+  assert.equal(h.saved.length, 0);
 });

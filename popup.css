@@ -88,6 +88,12 @@ button:active { transform: translateY(1px); }
 .grammar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 15px; }
 .principal-parts { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
 .tag { border-radius: 6px; padding: 4px 8px; background: var(--soft); color: #796046; font-size: 11px; }
+.noun-variants { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
+.noun-variant { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--muted); font-size: 12px; }
+.noun-variant:hover { background: var(--soft); }
+.noun-variant[aria-pressed="true"] { border-color: var(--accent); background: var(--peach); color: var(--accent); }
+.usage-note { margin: 9px 0 0; color: var(--muted); font-size: 11px; }
+.variant-error { margin-top: 12px; }
 .form-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .form-note strong { color: var(--accent); }
 .inflection-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 18px; }

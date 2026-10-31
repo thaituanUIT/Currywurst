@@ -152,6 +152,7 @@ async function runLookup(word, detail = null, options = {}) {
         ? await fetchPage(fullDictionaryEntryUrl(detail.entry.url, detail.entry.url) || detail.entry.url, controller).then((page) => ({ data: parseVerbformen(page.html, word, page.sourceUrl), sourceUrl: page.sourceUrl }))
         : await lookupGermanEntry(word, (url) => fetchPage(url, controller), controller.signal);
       if (sequence !== lookupSequence) return;
+      if (detail?.previousData && found && found.data.lemma.toLowerCase() !== detail.entry.lemma.toLowerCase()) throw new Error("This noun variant could not be found.");
       if (!found) {
         result.innerHTML = '<p class="muted">No matching German entry found. Try another spelling or switch to EN → DE.</p>';
         return;
@@ -161,9 +162,14 @@ async function runLookup(word, detail = null, options = {}) {
     }
   } catch (error) {
     if (sequence !== lookupSequence) return;
-    result.innerHTML = `${detail ? '<button class="back-button" id="back-results">← Back to results</button>' : ""}<p class="error">${escapeHtml(controller.signal.aborted ? "Lookup timed out. Please try again." : error.message)}</p><p class="muted">You can also open the dictionary using the source link below.</p><button id="retry">Retry</button>`;
+    if (detail?.previousData) {
+      sourceLink.href = detail.previousData.sourceUrl;
+      renderGermanEntry(detail.previousData, detail.backState, "Could not load this noun variant. Please try again.");
+      return;
+    }
+    result.innerHTML = `${detail?.backState ? '<button class="back-button" id="back-results">← Back to results</button>' : ""}<p class="error">${escapeHtml(controller.signal.aborted ? "Lookup timed out. Please try again." : error.message)}</p><p class="muted">You can also open the dictionary using the source link below.</p><button id="retry">Retry</button>`;
     document.querySelector("#retry").addEventListener("click", () => runLookup(word, detail, options));
-    if (detail) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderEnglishResults(detail.backState); });
+    if (detail?.backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderEnglishResults(detail.backState); });
   } finally {
     clearTimeout(timeout);
   }
@@ -189,12 +195,23 @@ function renderEnglishResults(state) {
   bindPronunciation();
 }
 
-function renderGermanEntry(data, backState) {
+function renderGermanEntry(data, backState, message = "") {
   const separateForm = data.lemma.toLocaleLowerCase() !== data.word.toLocaleLowerCase();
   const audioButtons = `<div class="audio-controls">${speakerButton(data.lemma, "de-DE", data.audio?.[0])}<span>${escapeHtml(data.lemma)}</span>${separateForm ? `${speakerButton(data.word, "de-DE")}<span>${escapeHtml(data.word)}</span>` : ""}</div>`;
   const tags = [data.level, data.partOfSpeech, ...(data.grammarTags || [data.grammar])].filter(Boolean).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
   const tables = renderInflections(data.inflectionTables);
-  result.innerHTML = `${backState ? '<button class="back-button" id="back-results">← Back to results</button>' : ""}<div class="result-head"><div><h1 class="word-title">${escapeHtml(data.lemma)}</h1><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div><p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
+  const sourcePath = data.sourceUrl ? new URL(data.sourceUrl).pathname : "";
+  const variantList = data.variants || [];
+  const selectedByUrl = variantList.findIndex((variant) => new URL(variant.url).pathname === sourcePath);
+  const selectedVariant = selectedByUrl >= 0 ? selectedByUrl : variantList.findIndex((variant) => variant.article === data.article);
+  const variants = variantList.length > 1 ? `<div class="noun-variants" role="group" aria-label="Noun articles">${variantList.map((variant, index) => `<button type="button" class="noun-variant" data-noun-variant="${index}" aria-pressed="${index === selectedVariant}">${escapeHtml(variant.label)}</button>`).join("")}</div>` : "";
+  const notes = (data.usageNotes || []).map((note) => `<p class="usage-note">${escapeHtml(note)}</p>`).join("");
+  result.innerHTML = `${backState ? '<button class="back-button" id="back-results">← Back to results</button>' : ""}<div class="result-head"><div><h1 class="word-title">${escapeHtml(data.lemma)}</h1><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${variants}<p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
+  result.querySelectorAll("[data-noun-variant]").forEach((button) => button.addEventListener("click", () => {
+    if (button.getAttribute("aria-pressed") === "true") return;
+    const variant = data.variants[Number(button.dataset.nounVariant)];
+    runLookup(data.word, { entry: variant, backState, previousData: data });
+  }));
   if (backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderEnglishResults(backState); });
   bindPronunciation();
 }

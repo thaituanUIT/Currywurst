@@ -2,6 +2,26 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## 1.2.0 — Stable Release
+
+### Added
+
+- Article buttons for nouns with multiple genders, such as **die Vokabel** and **das Vokabel**.
+- Separate meanings, usage notes, and declension tables for each noun variant, loaded when selected.
+- Preserve alternate-gender entries even when their English translations are identical.
+
+### Changed
+
+- Simplified empty-state text and removed example placeholders from the search box.
+- Increased the search input text size.
+- Enabled language-aware hyphenation in inflection tables to avoid arbitrary letter wrapping.
+
+### Fixed
+
+- Keep the original inflected word available for pronunciation when switching noun variants.
+- Retain the current entry if loading an alternate noun variant fails.
+- Preserve alternate articles when a search result opens its full dictionary entry.
+
 ## 1.1.3
 
 ### Added
@@ -21,7 +41,7 @@ Major features and fixes in Currywurst. Version numbers follow the extension man
 - Request English translations explicitly and reject unexpected redirects outside Verbformen.
 - Show a clear missing-entry message rather than displaying an unrelated result.
 
-## 1.1.2 — Released
+## 1.1.2
 
 ### Fixed
 

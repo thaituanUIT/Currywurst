@@ -41,6 +41,7 @@ German resolution shares a cache within the lookup and makes at most six distinc
 - **Separable verbs:** Match separated forms and joined subordinate-clause forms when the source particle and lemma support them.
 - **Comparison:** Check adjective comparison forms, including irregular examples such as `gut → besser → am besten`.
 - **Search-only entries:** Keep lexical cards for words that have no inflection tables or dedicated detail links.
+- **Multiple noun genders:** Preserve separate entries for linked articles, such as `die Vokabel` and `das Vokabel`. Article buttons load the chosen variant on demand; meanings, usage notes, and declension tables stay specific to that variant. Identical English glosses do not cause different gender entries to be discarded.
 
 ## Verification and limits
 

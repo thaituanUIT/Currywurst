@@ -29,6 +29,8 @@ You can also open the extension from the Extensions menu and type a word into th
 
 Some words, such as “Gift” or “Bank”, exist in both languages. If the automatic choice is wrong, click the language button to reverse the direction and look up the word again.
 
+Some nouns have more than one article. When article buttons appear, such as **die Vokabel** and **das Vokabel**, click one to see its meaning, usage notes, and word forms.
+
 ## If something goes wrong
 
 - **The lookup does not open:** Make sure a single word is selected, then right-click it again.

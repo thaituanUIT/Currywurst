@@ -91,3 +91,19 @@ test('irregular comparative and superlative forms can match an adjective entry',
   assert.equal(parser.isGermanEntryMatch(entry, 'besten'), true);
   assert.equal(parser.isGermanEntryMatch(entry, 'böse'), false);
 });
+
+test('noun gender links match the exact lemma and preserve both articles', () => {
+  assert.equal(parser.nounVariantArticle('feminine, -, -en- Vokabel, die', 'Vokabel'), 'die');
+  assert.equal(parser.nounVariantArticle('neutral, -s, - Vokabel⁹, das', 'Vokabel'), 'das');
+  assert.equal(parser.nounVariantArticle('das Vokabel', 'Vokabel'), 'das');
+  assert.equal(parser.nounVariantArticle('Vokabelheft, das', 'Vokabel'), '');
+  assert.equal(parser.nounArticleFromTags(['neutral', 'regular']), 'das');
+  assert.equal(parser.nounArticleFromTags(['feminine']), 'die');
+  assert.equal(parser.extractLemma('Declension of German noun das Vokabel with plural and article', 'Vokabeln'), 'Vokabel');
+});
+
+test('explicit noun header forms can verify a plural on a search card', () => {
+  const entry = { title: 'German noun Vokabel', lemma: 'Vokabel', meaning: 'word', headwordForms: ['Vokabel','Vokabeln'], inflectionTables: [] };
+  assert.equal(parser.isGermanEntryMatch(entry, 'Vokabeln'), true);
+  assert.equal(parser.isGermanEntryMatch(entry, 'Vokabelheft'), false);
+});

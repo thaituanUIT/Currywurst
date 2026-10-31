@@ -19,7 +19,7 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
       const full = await load(fullUrl);
       if (full) {
         const parsed = parseVerbformen(full.html, word, full.sourceUrl);
-        if (isGermanEntryMatch(parsed, word)) return { data: parsed, sourceUrl: full.sourceUrl };
+        if (isGermanEntryMatch(parsed, word)) return { data: { ...parsed, variants: mergeNounVariants(parsed, data.variants || []) }, sourceUrl: full.sourceUrl };
       }
     }
     return { data: { ...data, word }, sourceUrl };
@@ -29,8 +29,16 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     if (!page) return null;
     const data = parseVerbformen(page.html, word, page.sourceUrl);
     if (isGermanEntryMatch(data, word)) return completeEntry(data, page.sourceUrl);
-    const card = parseGermanSearchEntries(page.html, word, page.sourceUrl)[0];
-    if (card) return completeEntry(card.data, page.sourceUrl, card.detailUrl);
+    const cards = parseGermanSearchEntries(page.html, word, page.sourceUrl);
+    const card = cards[0];
+    if (card) {
+      const variants = cards.filter((entry) => entry.data.lemma.toLowerCase() === card.data.lemma.toLowerCase()).flatMap((entry) => {
+        const article = entry.data.article || entry.label?.match(/^(der|die|das)\s/i)?.[1];
+        const url = dictionaryEntryUrl(entry.detailUrl || entry.url, page.sourceUrl);
+        return article && url ? [{ article, label: `${article} ${entry.data.lemma}`, lemma: entry.data.lemma, url }] : [];
+      });
+      return completeEntry({ ...card.data, variants: mergeNounVariants(card.data, variants) }, page.sourceUrl, card.detailUrl);
+    }
     return null;
   };
   const direct = await inspect(`https://www.verbformen.com/?w=${encodeURIComponent(word)}&l=11`);
@@ -45,6 +53,17 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     if (found) return found;
   }
   return null;
+}
+
+function mergeNounVariants(data, extra) {
+  const seen = new Set();
+  return [...(data.variants || []), ...extra].filter((variant) => {
+    if (!variant.lemma || variant.lemma.toLowerCase() !== data.lemma.toLowerCase()) return false;
+    const key = `${variant.article}|${variant.url}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 8);
 }
 
 function germanImperativeCandidates(word) {

@@ -97,3 +97,20 @@ test('404 routes are skipped, while an aborted lookup sends no requests', async 
   await assert.rejects(h.context.lookupGermanEntry('buchstabier', h.load, controller.signal));
   assert.equal(h.calls.length, count);
 });
+
+test('matching noun cards preserve alternate genders without fetching them eagerly', async () => {
+  const feminine = { title: 'German noun Vokabel', lemma: 'Vokabel', partOfSpeech: 'noun', article: 'die', meaning: 'word', headwordForms: ['Vokabel','Vokabeln'], inflectionTables: [] };
+  const neuter = { ...feminine, article: 'das', meaning: 'word, vocabulary' };
+  const primary = 'https://www.verbformen.com/declension/nouns/Vokabel.htm';
+  const alternate = 'https://www.verbformen.com/declension/nouns/Vokabel_neut.htm';
+  const h = harness(url => url.pathname === '/' ? { html: { cards: [
+    { data: feminine, detailUrl: primary, label: 'die Vokabel' },
+    { data: neuter, detailUrl: alternate, label: 'das Vokabel' },
+  ] } } : { html: { entry: feminine } });
+  const result = await h.context.lookupGermanEntry('Vokabeln', h.load, h.signal);
+  assert.equal(result.data.variants.length, 2);
+  assert.equal(result.data.variants[0].article, 'die');
+  assert.equal(result.data.variants[1].article, 'das');
+  assert.equal(h.calls.length, 2);
+  assert.ok(h.calls.every(url => !url.pathname.endsWith('Vokabel_neut.htm')));
+});

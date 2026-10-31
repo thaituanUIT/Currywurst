@@ -50,6 +50,19 @@ function parseVerbformen(html, word, sourceUrl) {
   const article = formLines.find((line) => /^(der|die|das)\s+/i.test(line) && line.toLowerCase().includes(word.toLowerCase())) || "";
   const matchingForms = formLines.filter((line) => line.toLowerCase() === word.toLowerCase() || /^[\p{L}äöüÄÖÜß-]+$/.test(line) && line.length > 2);
   const forms = { Article: article, Singular: matchingForms[0] || word, Plural: matchingForms[1] || "" };
+  const nounArticle = partOfSpeech === "noun" ? nounArticleFromTags(grammarTags) : "";
+  const headwordForms = partOfSpeech === "noun" ? (formLines.find((line) => {
+    const values = line.split("·");
+    return values.length === 2 && values.every((value) => /^[\p{L}\s()/'"⁰¹²³⁴⁵⁶⁷⁸⁹-]+$/u.test(value.trim()));
+  }) || "").split("·").map((value) => value.trim()).filter(Boolean) : [];
+  if (nounArticle) forms.Article = `${nounArticle} ${lemma}`;
+  if (partOfSpeech === "noun") {
+    forms.Singular = lemma;
+    forms.Genitive = headwordForms[0] || "";
+    forms.Plural = headwordForms[1] || "";
+  }
+  const variants = partOfSpeech === "noun" ? extractNounVariants(doc, lemma, sourceUrl) : [];
+  const usageNotes = [...new Set(lines.filter((line) => /^[⁰¹²³⁴⁵⁶⁷⁸⁹0-9]+\s+/.test(line) && /\b(?:regional|southern|austria|switzerland|colloquial|obsolete|rare|usage|depends|only)\b/i.test(line)).map((line) => line.replace(/^[⁰¹²³⁴⁵⁶⁷⁸⁹0-9]+\s+/, "")))].slice(0, 4);
   const caseLabels = /^(nom\.?|gen\.?|dat\.?|acc\.?|nominativ|genitiv|dativ|akkusativ)$/i;
   const verbLabels = /^(ich|du|er|sie|es|wir|ihr|Sie|infinitive|participle|imperative|present|imperfect|past|perfect|future|present subj\.?|imperf\.? subj\.?|infinitiv|partizip|imperativ|konjunktiv|präsens|präteritum|perfekt|futur)$/i;
   const adjectiveLabels = /^(masculine|feminine|neutral|neuter|plural|masc\.?|fem\.?|neut\.?|singular)$/i;
@@ -91,6 +104,10 @@ function parseVerbformen(html, word, sourceUrl) {
     principalParts,
     meaning,
     forms,
+    article: nounArticle,
+    headwordForms,
+    variants,
+    usageNotes,
     inflectionTables,
     excerpt: entryText.replace(/\s+/g, " ").slice(0, 900),
     ipa: [...new Set(ipa)],
@@ -139,7 +156,7 @@ function dictionaryText(root) {
 function extractLemma(title, fallback) {
   const match = title.replace(/\s+/g, " ").match(new RegExp(`\\b(${DICTIONARY_WORD_TYPES})\\s+(.+?)(?:\\s+with plural\\b.*|\\s*⟨.*|$)`, "iu"));
   if (!match) return fallback;
-  const lemma = match[2].replace(/\s*·\s*/g, "").trim();
+  const lemma = match[2].replace(/\s*·\s*/g, "").replace(/^(?:der|die|das)\s+/i, "").trim();
   return match[1].toLowerCase() === "verb" ? lemma.replace(/\s+/g, "") : lemma;
 }
 
@@ -246,6 +263,7 @@ function isGermanEntryMatch(entry, word) {
   const query = normalizeGermanForm(word);
   if (!query) return false;
   if (expandGermanForms(entry.lemma).includes(query)) return true;
+  if ((entry.headwordForms || []).some((form) => expandGermanForms(form).includes(query))) return true;
   if ((entry.principalParts || "").split("·").some((part) => expandGermanForms(part).some((form) => form === query || form.split(" ").includes(query)))) return true;
   return (entry.inflectionTables || []).some((table) => table.rows.some((row) => {
     if (row.some((cell) => expandGermanForms(cell).includes(query))) return true;
@@ -379,7 +397,7 @@ function parseSearchCards(html, sourceUrl) {
       const detailUrl = links.find((entry) => entry.text === normalizeGermanForm(lemma) || entry.text.endsWith(` ${normalizeGermanForm(lemma)}`))?.url || (urls.length === 1 ? urls[0] : null);
       const article = type === "noun" ? rawLabel.match(/\b(der|die|das)\b/i)?.[1] || (metadata.grammarTags.includes("feminine") ? "die" : metadata.grammarTags.includes("masculine") ? "der" : metadata.grammarTags.some((tag) => /^(neutral|neuter)$/.test(tag)) ? "das" : "") : "";
       const url = detailUrl || sourceUrl;
-      const signature = `${type}|${lemma}|${meaning}`;
+      const signature = `${type}|${lemma}|${article}|${detailUrl || ""}|${meaning}`;
       if (!seen.has(signature)) {
         cards.push({ lemma, label: article ? `${article} ${lemma}` : lemma, partOfSpeech: type, meaning, url, detailUrl, data });
         seen.add(signature);
@@ -392,5 +410,37 @@ function parseSearchCards(html, sourceUrl) {
 
 function parseGermanSearchEntries(html, query, sourceUrl) {
   return parseSearchCards(html, sourceUrl).filter((entry) => isGermanEntryMatch(entry.data, query));
+}
+
+function nounArticleFromTags(tags = []) {
+  for (const tag of tags) {
+    if (tag === "feminine") return "die";
+    if (tag === "masculine") return "der";
+    if (tag === "neutral" || tag === "neuter") return "das";
+  }
+  return "";
+}
+
+function nounVariantArticle(label, lemma) {
+  const text = label.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹„“”"]/g, "").replace(/\s+/g, " ").trim();
+  const escaped = lemma.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.match(new RegExp(`(?:^|[\\s,])${escaped}\\s*,\\s*(der|die|das)\\b`, "iu"))?.[1]?.toLowerCase()
+    || text.match(new RegExp(`(?:^|[\\s,])(der|die|das)\\s+${escaped}(?=$|[\\s,])`, "iu"))?.[1]?.toLowerCase() || "";
+}
+
+function extractNounVariants(doc, lemma, sourceUrl) {
+  const seen = new Set();
+  return [...doc.querySelectorAll("a[href]")].flatMap((link) => {
+    const url = dictionaryEntryUrl(link.getAttribute("href"), sourceUrl);
+    if (!url || !new URL(url).pathname.startsWith("/declension/nouns/")) return [];
+    const label = link.cloneNode(true);
+    label.querySelectorAll("sup").forEach((node) => node.remove());
+    const article = nounVariantArticle(label.textContent, lemma);
+    if (!article) return [];
+    const key = `${article}|${url}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ article, label: `${article} ${lemma}`, lemma, url }];
+  }).slice(0, 8);
 }
 
