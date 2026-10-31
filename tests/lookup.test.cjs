@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
-const parserContext = vm.createContext({});
+const parserContext = vm.createContext({ URL });
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 
 function makeElement(dataset = {}) {
@@ -23,8 +23,11 @@ function harness(savedState = {}) {
     parseEnglishSearchForm: () => ({ action: 'https://www.verbformen.com/en-de/', method: 'GET', fields: [['language', 'en']] }),
     parseEnglishResults: () => entries,
     isGermanEntryMatch: parserContext.isGermanEntryMatch,
+    dictionaryEntryUrl: parserContext.dictionaryEntryUrl,
+    parseGermanSearchEntries: () => [],
     parseVerbformen: (_, word) => ({ word, lemma: word, title: `Noun ${word}`, ipa: [], audio: [], inflectionTables: [], meaning: word }),
   });
+  vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
   const respond = (index) => requests[index].resolve({ ok: true, text: async () => '', url: requests[index].url });
   return { context, elements, requests, saved, respond, entryButton };

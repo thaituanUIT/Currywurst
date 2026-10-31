@@ -4,6 +4,8 @@ Look up German and English words while you read in Chrome or Microsoft Edge. Cur
 
 See [CHANGELOG.md](CHANGELOG.md) for major updates, new features, and fixes.
 
+See [lookup coverage notes](docs/VERBFORMEN.md) for supported word types, form matching, and known limits.
+
 ## Install the extension
 
 This version is installed from a folder on your computer. Keep the folder where it is; the browser needs it to stay there.
@@ -40,7 +42,7 @@ This disclosure describes the current version of Currywurst in this repository.
 
 **What the extension reads:** The text you select or type for a lookup. When you use the right-click action, it also reads the language label of the selected element or page to help choose the lookup direction. It does not send surrounding page text to the dictionary, scan pages in the background, or collect your browsing history.
 
-**What leaves your browser:** Lookup text is sent over HTTPS to [Verbformen](https://www.verbformen.com/) to retrieve translations and word forms. Automatic language detection may try both lookup directions. Opening a German match requests that word's entry. Verbformen receives the lookup text and standard connection information, such as your IP address, and may retain its own request logs. Its own privacy terms apply to those requests.
+**What leaves your browser:** Lookup text is sent over HTTPS to [Verbformen](https://www.verbformen.com/) to retrieve translations and word forms. Automatic language detection may try both lookup directions. If a form is not found, Currywurst may request related spellings to locate its dictionary entry. Opening a German match requests that word's entry when a separate page is available. Verbformen receives the lookup text and standard connection information, such as your IP address, and may retain its own request logs. Its own privacy terms apply to those requests.
 
 **Pronunciation:** Playing a dictionary recording requests an audio file from Verbformen. If a recording is unavailable, Currywurst asks the browser to speak the word. Depending on the voice and your browser or operating system, speech may be generated on your device or by a third-party speech service. That service may receive the word being spoken.
 

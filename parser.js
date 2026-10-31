@@ -1,3 +1,5 @@
+const DICTIONARY_WORD_TYPES = "verb|noun|adjective|adverb|pronoun|article|preposition|conjunction|particle|numeral|interjection";
+
 function parseVerbformen(html, word, sourceUrl) {
   const doc = parseDictionaryDocument(html);
   const cleanText = cleanDictionaryText;
@@ -28,17 +30,18 @@ function parseVerbformen(html, word, sourceUrl) {
     .filter((value) => /[ˈˌəɐɛɪɔʊʃçʁøœyɡŋ]/u.test(value))
     .slice(0, 5);
   const lines = entryText.split("\n").map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
-  const summaryNode = [...main.querySelectorAll("p,div,span,small")].find((node) => {
+  const summaryPattern = new RegExp(`^(?:[ABC][12]\\s*·\\s*)?(?:${DICTIONARY_WORD_TYPES}|regular|irregular|haben|sein)(?:\\s*·|$)`, "i");
+  const summaryNode = [...main.querySelectorAll("p,small"), ...main.querySelectorAll("div,span")].find((node) => {
     const value = cleanText(node.textContent).replace(/\s+/g, " ");
-    return value.length < 220 && /^[ABC][12]\s*·/.test(value);
+    return value.length < 220 && summaryPattern.test(value);
   });
-  const grammarLine = summaryNode ? cleanText(summaryNode.textContent) : lines.find((line) => /^[ABC][12]\s*·/.test(line)) || "";
+  const grammarLine = summaryNode ? cleanText(summaryNode.textContent) : lines.find((line) => summaryPattern.test(line)) || "";
   const { level, partOfSpeech, grammarTags } = parseGrammarSummary(grammarLine, title);
   const grammar = grammarTags.join(" · ");
-  const principalParts = partOfSpeech === "verb" ? lines.find((line) => {
+  const principalParts = ["verb", "adjective"].includes(partOfSpeech) ? lines.find((line) => {
     const parts = line.split("·").map((part) => part.trim());
     return parts.length === 3 && line.length < 180 && !/^[ABC][12]\b/.test(line)
-      && parts.every((part) => /^[\p{L}\s()'-]+$/u.test(part))
+      && parts.every((part) => /^[\p{L}\s()'"/⁰¹²³⁴⁵⁶⁷⁸⁹-]+$/u.test(part))
       && !/\b(?:regular|irregular|verb|noun|adjective|separable|inseparable)\b/i.test(line);
   }) || "" : "";
   const meaning = extractEnglishMeaning(doc, heading, cleanText);
@@ -134,20 +137,20 @@ function dictionaryText(root) {
 }
 
 function extractLemma(title, fallback) {
-  const match = title.replace(/\s+/g, " ").match(/\b(verb|noun|adjective|adverb|pronoun|article)\s+(.+?)(?:\s+with plural\b.*|$)/iu);
+  const match = title.replace(/\s+/g, " ").match(new RegExp(`\\b(${DICTIONARY_WORD_TYPES})\\s+(.+?)(?:\\s+with plural\\b.*|\\s*⟨.*|$)`, "iu"));
   if (!match) return fallback;
   const lemma = match[2].replace(/\s*·\s*/g, "").trim();
   return match[1].toLowerCase() === "verb" ? lemma.replace(/\s+/g, "") : lemma;
 }
 
 function parseGrammarSummary(summary, title) {
-  const parts = summary.replace(/\s+/g, " ").split("·").map((part) => part.trim()).filter(Boolean);
+  const parts = summary.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, "").replace(/\s+/g, " ").split("·").map((part) => part.replace(/^\s*<also:\s*/i, "").replace(/[<>]/g, "").trim()).filter(Boolean);
   const level = parts.find((part) => /^[ABC][12]$/.test(part)) || "";
-  const partOfSpeech = title.match(/\b(verb|noun|adjective|adverb|pronoun|article)\s+/i)?.[1]?.toLowerCase()
-    || parts.find((part) => /^(verb|noun|adjective|adverb|pronoun|article)$/i.test(part)) || "";
+  const partOfSpeech = title.match(new RegExp(`\\b(${DICTIONARY_WORD_TYPES})\\s+`, "i"))?.[1]?.toLowerCase()
+    || parts.find((part) => new RegExp(`^(${DICTIONARY_WORD_TYPES})$`, "i").test(part))?.toLowerCase() || "";
   // Accept grammar labels, never arbitrary paragraphs that happen to contain
   // the word 'verb' and a separable-word marker.
-  const grammarTags = [...new Set(parts.filter((part) => /^(?:irregular|regular|haben|sein|separable|inseparable|masculine|feminine|neutral|neuter|strong|weak|mixed|positive|comparative|superlative|not comparable|comparable|indeclinable|reflexive|transitive|intransitive|passive|only singular|only plural)$/i.test(part)))];
+  const grammarTags = [...new Set(parts.filter((part) => /^(?:irregular|regular|haben|sein|separable|inseparable|not separable|masculine|feminine|neutral|neuter|strong|weak|mixed|positive|comparative|superlative|not comparable|comparable|indeclinable|reflexive|transitive|intransitive|passive|only singular|only plural|personal pronoun|reflexive pronoun|possessive|relative|demonstrative|interrogative|indefinite|definite|coordinating|subordinating|accusative|dative|genitive)$/i.test(part)))];
   return { level, partOfSpeech, grammarTags };
 }
 
@@ -220,25 +223,61 @@ function englishGlossMatches(gloss, query) {
   return Boolean(needle) && gloss.split(/[,;]+/).some((sense) => normalize(sense) === needle);
 }
 
+function normalizeGermanForm(value) {
+  return String(value).normalize("NFC").toLocaleLowerCase("de-DE")
+    .replace(/[·⁰¹²³⁴⁵⁶⁷⁸⁹]/g, "").replace(/[„“”"']/g, "").replace(/\s+/g, " ").trim();
+}
+
+function expandGermanForms(value) {
+  let forms = [normalizeGermanForm(value).replace(/\((?:du|ihr|sie|wir)\)/gi, "").trim()];
+  // Parentheses indicate optional letters: geh(e), aß(es)t, and(e)r(e)n.
+  for (let depth = 0; depth < 5 && forms.some((form) => /\([\p{L}]+\)/u.test(form)); depth++) {
+    forms = forms.flatMap((form) => {
+      const match = form.match(/\(([\p{L}]+)\)/u);
+      return match ? [form.replace(match[0], ""), form.replace(match[0], match[1])] : [form];
+    }).slice(0, 32);
+  }
+  return [...new Set(forms.flatMap((form) => form.split(/\s*[/;]\s*/)).map((form) => form.trim()).filter(Boolean))];
+}
+
 function isGermanEntryMatch(entry, word) {
-  // Search may redirect an English query or unknown spelling to another word.
-  // Only accept a German headword or an inflected form present in its tables.
-  if (!/\b(?:verb|noun|adjective|adverb|pronoun|article)\s+/i.test(entry.title || "")) return false;
-  if (!entry.meaning && !entry.inflectionTables?.length) return false;
-  const normalize = (value) => String(value).normalize("NFC").toLocaleLowerCase("de-DE").replace(/[·⁰¹²³⁴⁵⁶⁷⁸⁹]/g, "").replace(/\s+/g, " ").trim();
-  const query = normalize(word);
+  const knownTitle = new RegExp(`\\b(?:${DICTIONARY_WORD_TYPES})\\s+`, "i").test(entry.title || "");
+  if (!knownTitle || (!entry.meaning && !entry.inflectionTables?.length)) return false;
+  const query = normalizeGermanForm(word);
   if (!query) return false;
-  if (normalize(entry.lemma) === query) return true;
-  return (entry.inflectionTables || []).some((table) => table.rows.some((row) =>
-    row.some((cell) => normalize(cell) === query) || normalize(row.join(" ")).split(" ").includes(query),
-  ));
+  if (expandGermanForms(entry.lemma).includes(query)) return true;
+  if ((entry.principalParts || "").split("·").some((part) => expandGermanForms(part).some((form) => form === query || form.split(" ").includes(query)))) return true;
+  return (entry.inflectionTables || []).some((table) => table.rows.some((row) => {
+    if (row.some((cell) => expandGermanForms(cell).includes(query))) return true;
+    if (expandGermanForms(row.join(" ")).some((form) => form === query || form.endsWith(` ${query}`) || form.split(" ").includes(query))) return true;
+    const verb = entry.partOfSpeech === "verb" || /\bverb\s/i.test(entry.title);
+    if (!verb) return false;
+    // A separated particle can rejoin its verb in a subordinate clause.
+    const prefix = normalizeGermanForm(row.at(-1));
+    if (row.length >= 3 && prefix && normalizeGermanForm(entry.lemma).startsWith(prefix)
+      && expandGermanForms(row[1]).some((form) => prefix + form === query)) return true;
+    // Accept a shortened du-imperative only when the source explicitly lists
+    // that imperative. Do not drop mandatory e in arbeite, rede, atme, etc.
+    const imperative = /imperativ/i.test(`${table.group || ""} ${table.title}`);
+    if (!imperative || !row.some((cell) => /^(?:\(du\)|du)$/i.test(cell.trim()))) return false;
+    const imperativeForm = /^du$/i.test(row[0].trim()) ? row[1] || "" : row[0];
+    return expandGermanForms(imperativeForm).some((form) => {
+      if (!form.endsWith("e")) return false;
+      const stem = form.slice(0, -1);
+      return stem === query && !/(?:[dt]|[bcdfghjklpqstvwxz][mn])$/i.test(stem);
+    });
+  }));
 }
 
 function dictionaryEntryUrl(href, baseUrl) {
   try {
     const url = new URL(href, baseUrl);
     if (url.origin !== "https://www.verbformen.com") return null;
-    return /^\/(?:conjugation\/[^/]+|declension\/(?:nouns|adjectives|pronouns|articles)\/[^/]+)\.htm$/.test(url.pathname) ? url.href : null;
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments.some((part) => /^(?:examples|worksheets|worksheets-exercises|downloads|search)$/i.test(part))) return null;
+    const conjugation = segments[0] === "conjugation" && segments.length >= 2;
+    const declension = segments[0] === "declension" && ["nouns", "adjectives", "pronouns", "articles"].includes(segments[1]) && segments.length >= 3;
+    return (conjugation || declension) && segments.length <= 7 && /^[^/]+\.htm$/i.test(segments.at(-1)) ? url.href : null;
   } catch { return null; }
 }
 
@@ -281,7 +320,7 @@ function parseEnglishResults(html, query, sourceUrl) {
       const candidate = links.find(({ link }) => /^[\p{L}\s·'-]+(?:,\s*(?:der|die|das))?$/u.test(link.textContent.trim()));
       if (!candidate) continue;
       const text = cleanDictionaryText(card.textContent).replace(/\s+/g, " ");
-      const pos = text.match(/\b(noun|verb|adjective|pronoun|article|adverb)\b/i)?.[1]?.toLowerCase() || "";
+      const pos = text.match(new RegExp(`\\b(${DICTIONARY_WORD_TYPES})\\b`, "i"))?.[1]?.toLowerCase() || "";
       const label = candidate.link.textContent.replace(/·/g, "").replace(/\s+/g, " ").trim();
       const lemma = label.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "");
       const article = pos === "noun" ? text.match(/\b(der|die|das)\b/)?.[1] || (text.includes("feminine") ? "die" : text.includes("masculine") ? "der" : /\b(neutral|neuter)\b/.test(text) ? "das" : "") : "";
@@ -293,13 +332,65 @@ function parseEnglishResults(html, query, sourceUrl) {
       break;
     }
   }
+  for (const entry of parseSearchCards(html, sourceUrl)) {
+    const signature = `${entry.url}|${entry.meaning}`;
+    if (englishGlossMatches(entry.meaning, query) && !seen.has(signature)) {
+      results.push(entry);
+      seen.add(signature);
+    }
+  }
   // A search with one match can redirect straight to the German entry.
-  if (!results.length && /\b(?:verb|noun|adjective|pronoun|article)\s+/i.test(heading?.textContent || "")) {
+  if (!results.length && new RegExp(`\\b(?:${DICTIONARY_WORD_TYPES})\\s+`, "i").test(heading?.textContent || "")) {
     const entry = parseVerbformen(html, query, sourceUrl);
     if (englishGlossMatches(entry.meaning, query)) {
       results.push({ lemma: entry.lemma, label: entry.forms.Article || entry.lemma, partOfSpeech: entry.partOfSpeech, meaning: entry.meaning, url: dictionaryEntryUrl(sourceUrl, sourceUrl) || `https://www.verbformen.com/?w=${encodeURIComponent(entry.lemma)}` });
     }
   }
   return results;
+}
+
+function parseSearchCards(html, sourceUrl) {
+  const doc = parseDictionaryDocument(html);
+  const summaryPattern = new RegExp(`^(?:[ABC][12]\\s*·\\s*)?(?:${DICTIONARY_WORD_TYPES})(?:\\s*·|$)`, "i");
+  const summaries = [...doc.querySelectorAll("p,small")].filter((node) => summaryPattern.test(cleanDictionaryText(node.textContent).replace(/\s+/g, " ")));
+  const cards = [];
+  const seen = new Set();
+  for (const summary of summaries) {
+    let card = summary.parentElement;
+    for (let depth = 0; card && depth < 7; depth++, card = card.parentElement) {
+      if (summaries.filter((node) => card.contains(node)).length > 1) break;
+      const meaning = extractEnglishMeaning(card, null, cleanDictionaryText);
+      if (!meaning) continue;
+      const summaryText = cleanDictionaryText(summary.textContent).replace(/\s+/g, " ");
+      const lines = dictionaryText(card).split("\n").map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+      const index = lines.findIndex((line) => line === summaryText);
+      if (index < 0 || !lines[index + 1]) continue;
+      const rawLabel = lines[index + 1].replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹„“”"]/g, "").replace(/\s*<[^>]+>/g, "").trim();
+      const lemma = rawLabel.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "").replace(/\s*·\s*/g, "");
+      if (!/^[\p{L}]+(?:[ '-][\p{L}]+)*$/u.test(lemma)) continue;
+      const metadata = parseGrammarSummary(summaryText, "");
+      const type = metadata.partOfSpeech;
+      if (!type) continue;
+      const encode = (value) => value.replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char]);
+      const entryHtml = `<main><h1>German ${type} ${encode(lemma)}</h1>${card.outerHTML}</main>`;
+      const data = parseVerbformen(entryHtml, lemma, sourceUrl);
+      const links = [...card.querySelectorAll("a[href]")].map((link) => ({ text: normalizeGermanForm(link.textContent), url: dictionaryEntryUrl(link.getAttribute("href"), sourceUrl) })).filter((entry) => entry.url);
+      const urls = [...new Set(links.map((entry) => entry.url))];
+      const detailUrl = links.find((entry) => entry.text === normalizeGermanForm(lemma) || entry.text.endsWith(` ${normalizeGermanForm(lemma)}`))?.url || (urls.length === 1 ? urls[0] : null);
+      const article = type === "noun" ? rawLabel.match(/\b(der|die|das)\b/i)?.[1] || (metadata.grammarTags.includes("feminine") ? "die" : metadata.grammarTags.includes("masculine") ? "der" : metadata.grammarTags.some((tag) => /^(neutral|neuter)$/.test(tag)) ? "das" : "") : "";
+      const url = detailUrl || sourceUrl;
+      const signature = `${type}|${lemma}|${meaning}`;
+      if (!seen.has(signature)) {
+        cards.push({ lemma, label: article ? `${article} ${lemma}` : lemma, partOfSpeech: type, meaning, url, detailUrl, data });
+        seen.add(signature);
+      }
+      break;
+    }
+  }
+  return cards;
+}
+
+function parseGermanSearchEntries(html, query, sourceUrl) {
+  return parseSearchCards(html, sourceUrl).filter((entry) => isGermanEntryMatch(entry.data, query));
 }
 

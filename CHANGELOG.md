@@ -2,6 +2,24 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## 1.1.3
+
+### Added
+
+- Lookup recovery through general search and conjugation routes, with bounded requests and a cache within each lookup.
+- Support for search-card entries without dedicated inflection pages, including adverbs, conjunctions, particles, and prepositions when supplied by Verbformen.
+- [Lookup coverage notes](docs/VERBFORMEN.md) documenting word types, researched routes, matching rules, and verification limits.
+
+### Fixed
+
+- Resolve shortened singular imperatives such as **buchstabier → buchstabieren**, checking the original selection against the source's imperative forms.
+- Recognize optional letters, slash alternatives, and footnote markers in word forms.
+- Match separated verb particles and joined subordinate-clause forms, plus irregular adjective comparison forms.
+- Accept nested tense and voice routes and retrieve the complete dictionary entry when available.
+- Preserve grammar labels on entries without a CEFR level and ignore footnote markers in metadata.
+- Request English translations explicitly and reject unexpected redirects outside Verbformen.
+- Show a clear missing-entry message rather than displaying an unrelated result.
+
 ## 1.1.2 — Released
 
 ### Fixed

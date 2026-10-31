@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const parser = vm.createContext({ Node: { DOCUMENT_POSITION_FOLLOWING: 4 } });
+const parser = vm.createContext({ URL, Node: { DOCUMENT_POSITION_FOLLOWING: 4 } });
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parser);
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -40,4 +40,54 @@ test('deduplication keeps identical forms in different moods and drops overview 
   assert.equal(result.length, 2);
   assert.equal(result[0].group, 'Indicative');
   assert.equal(result[1].group, 'Subjunctive');
+});
+
+
+test('shortened imperatives are accepted only from singular imperative evidence', () => {
+  const entry = { title: 'Conjugation of German verb buchstabieren', lemma: 'buchstabieren', partOfSpeech: 'verb', meaning: 'spell', inflectionTables: [{ title: 'Present', group: 'Imperative', rows: [['buchstabiere', '(du)']] }] };
+  assert.equal(parser.isGermanEntryMatch(entry, 'buchstabier'), true);
+  assert.equal(parser.isGermanEntryMatch({ ...entry, inflectionTables: [{ title: 'Present', rows: [['ich', 'buchstabiere']] }] }, 'buchstabier'), false);
+  for (const [lemma, form, invalid] of [['arbeiten','arbeite','arbeit'], ['reden','rede','red'], ['atmen','atme','atm']]) {
+    assert.equal(parser.isGermanEntryMatch({ ...entry, lemma, inflectionTables: [{ title: 'Imperative', rows: [[form, '(du)']] }] }, invalid), false);
+  }
+});
+
+test('optional letters, alternate spellings, and footnotes match source forms', () => {
+  assert.deepEqual(plain(parser.expandGermanForms('buchstabier(e)⁵')), ['buchstabier', 'buchstabiere']);
+  assert.deepEqual(plain(parser.expandGermanForms('aß(es)t')), ['aßt', 'aßest']);
+  assert.deepEqual(plain(parser.expandGermanForms('des/der')), ['des', 'der']);
+  const noun = { title: 'Declension of German noun Haus', lemma: 'Haus', meaning: 'house', inflectionTables: [{ title: 'Singular', rows: [['Gen.', 'des', 'Haus(e)s⁰']] }] };
+  assert.equal(parser.isGermanEntryMatch(noun, 'Hauses'), true);
+  assert.equal(parser.isGermanEntryMatch(noun, 'Hausen'), false);
+});
+
+test('separable verbs can match subordinate-clause joined forms', () => {
+  const entry = { title: 'Conjugation of German verb aufrufen', lemma: 'aufrufen', partOfSpeech: 'verb', meaning: 'call up', inflectionTables: [{ title: 'Present', rows: [['du','rufst','auf']] }] };
+  assert.equal(parser.isGermanEntryMatch(entry, 'aufrufst'), true);
+  assert.equal(parser.isGermanEntryMatch(entry, 'rufst auf'), true);
+});
+
+test('all word classes in the official search selector are recognized', () => {
+  for (const type of ['verb','noun','adjective','adverb','article','pronoun','preposition','conjunction','particle']) {
+    const metadata = parser.parseGrammarSummary(`A1 · ${type}`, '');
+    assert.equal(metadata.partOfSpeech, type);
+    assert.equal(parser.isGermanEntryMatch({ title: `German ${type} Beispiel`, lemma: 'Beispiel', meaning: 'example', inflectionTables: [] }, 'Beispiel'), true);
+  }
+  assert.equal(parser.extractLemma('Imperative of German verb buchstabieren ⟨Interrogative⟩','buchstabier'), 'buchstabieren');
+});
+
+test('nested dictionary routes are accepted while exports and foreign hosts are rejected', () => {
+  for (const path of ['conjugation/indikativ/praesens/buchstabieren.htm', 'conjugation/vpassiv/nebensatz/aufrufen.htm', 'declension/articles/ein.htm', 'declension/pronouns/einer.htm', 'declension/adjectives/klein.htm']) {
+    assert.equal(parser.dictionaryEntryUrl('/'+path,'https://www.verbformen.com/'), 'https://www.verbformen.com/'+path);
+  }
+  for (const path of ['conjugation/worksheets-exercises/suchsel/buchstabieren.htm','conjugation/aufrufen.pdf','search/','https://evil.example/conjugation/machen.htm']) {
+    assert.equal(parser.dictionaryEntryUrl(path,'https://www.verbformen.com/'), null);
+  }
+});
+
+test('irregular comparative and superlative forms can match an adjective entry', () => {
+  const entry = { title: 'Declension German adjective gut', lemma: 'gut', partOfSpeech: 'adjective', meaning: 'good', principalParts: 'gut · besser · am besten', inflectionTables: [] };
+  assert.equal(parser.isGermanEntryMatch(entry, 'besser'), true);
+  assert.equal(parser.isGermanEntryMatch(entry, 'besten'), true);
+  assert.equal(parser.isGermanEntryMatch(entry, 'böse'), false);
 });

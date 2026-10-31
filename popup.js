@@ -65,7 +65,12 @@ function cancelLookup() {
 async function fetchPage(url, controller, options = {}) {
   if (new URL(url).origin !== "https://www.verbformen.com") throw new Error("Unexpected dictionary address.");
   const response = await fetch(url, { ...options, headers: { Accept: "text/html", ...options.headers }, signal: controller.signal });
-  if (!response.ok) throw new Error(`Verbformen returned HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`Verbformen returned HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  if (new URL(response.url || url).origin !== "https://www.verbformen.com") throw new Error("Unexpected dictionary redirect.");
   return { html: await response.text(), sourceUrl: response.url || url };
 }
 
@@ -77,6 +82,7 @@ async function searchEnglish(word, controller) {
   }
   const fields = new URLSearchParams(englishForm.fields);
   fields.set("w", word);
+  fields.set("l", "11");
   if (englishForm.method === "POST") {
     return fetchPage(englishForm.action, controller, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: fields.toString() });
   }
@@ -86,15 +92,15 @@ async function searchEnglish(word, controller) {
 }
 
 async function detectAndLookup(word, hint, preferredMode, controller) {
+  const cache = new Map();
+  const loadPage = (url) => fetchPage(url, controller);
   const firstMode = /[äöüß]/i.test(word) ? "de-en" : hint === "en" ? "en-de" : hint === "de" ? "de-en" : preferredMode;
   const directions = [firstMode, firstMode === "de-en" ? "en-de" : "de-en"];
   for (const direction of directions) {
     controller.signal.throwIfAborted();
     if (direction === "de-en") {
-      const page = await fetchPage(`https://www.verbformen.com/?w=${encodeURIComponent(word)}`, controller);
-      controller.signal.throwIfAborted();
-      const data = parseVerbformen(page.html, word, page.sourceUrl);
-      if (isGermanEntryMatch(data, word)) return { mode: direction, data, sourceUrl: page.sourceUrl };
+      const found = await lookupGermanEntry(word, loadPage, controller.signal, { recover: hint === "de", cache });
+      if (found) return { mode: direction, ...found };
     } else {
       const page = await searchEnglish(word, controller);
       controller.signal.throwIfAborted();
@@ -102,7 +108,8 @@ async function detectAndLookup(word, hint, preferredMode, controller) {
       if (entries.length) return { mode: direction, state: { query: word, entries, sourceUrl: page.sourceUrl } };
     }
   }
-  return null;
+  const recovered = await lookupGermanEntry(word, loadPage, controller.signal, { cache });
+  return recovered ? { mode: "de-en", ...recovered } : null;
 }
 
 async function runLookup(word, detail = null, options = {}) {
@@ -140,11 +147,16 @@ async function runLookup(word, detail = null, options = {}) {
       if (sequence !== lookupSequence) return;
       renderEnglishResults({ query: word, entries, sourceUrl: page.sourceUrl });
     } else {
-      const page = await fetchPage(detail?.entry.url || `https://www.verbformen.com/?w=${encodeURIComponent(word)}`, controller);
-      const data = parseVerbformen(page.html, word, page.sourceUrl);
+      const found = detail
+        ? await fetchPage(fullDictionaryEntryUrl(detail.entry.url, detail.entry.url) || detail.entry.url, controller).then((page) => ({ data: parseVerbformen(page.html, word, page.sourceUrl), sourceUrl: page.sourceUrl }))
+        : await lookupGermanEntry(word, (url) => fetchPage(url, controller), controller.signal);
       if (sequence !== lookupSequence) return;
-      sourceLink.href = page.sourceUrl;
-      renderGermanEntry(data, detail?.backState);
+      if (!found) {
+        result.innerHTML = '<p class="muted">No matching German entry found. Try another spelling or switch to EN → DE.</p>';
+        return;
+      }
+      sourceLink.href = found.sourceUrl;
+      renderGermanEntry(found.data, detail?.backState);
     }
   } catch (error) {
     if (sequence !== lookupSequence) return;
@@ -163,10 +175,15 @@ function speakerButton(word, language, recording = "") {
 function renderEnglishResults(state) {
   sourceLink.href = state.sourceUrl;
   result.scrollTop = 0;
-  result.innerHTML = `<div class="result-head"><div><p class="eyebrow">ENGLISH → GERMAN</p><h1 class="word-title">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, "en-GB")}</div><p class="results-count muted">${state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"} · choose one to see its forms` : "No German matches found. Try another word or check Verbformen below."}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="Open grammar for ${escapeHtml(entry.label)}"><span class="translation-word">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(entry.partOfSpeech)}</span>` : ""}<span class="translation-meaning">${escapeHtml(entry.meaning)}</span><span class="translation-action">Forms & grammar ↗</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
+  result.innerHTML = `<div class="result-head"><div><p class="eyebrow">ENGLISH → GERMAN</p><h1 class="word-title">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, "en-GB")}</div><p class="results-count muted">${state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"} · choose one to see its forms` : "No German matches found. Try another word or check Verbformen below."}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="Open grammar for ${escapeHtml(entry.label)}"><span class="translation-word">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(entry.partOfSpeech)}</span>` : ""}<span class="translation-meaning">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? "Forms & grammar" : "View meaning"} ↗</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
   result.querySelectorAll("[data-entry]").forEach((button) => button.addEventListener("click", () => {
     const entry = state.entries[Number(button.dataset.entry)];
-    runLookup(entry.lemma, { entry, backState: state });
+    if (entry.data && !entry.detailUrl) {
+      cancelLookup();
+      sourceLink.href = entry.url;
+      result.scrollTop = 0;
+      renderGermanEntry(entry.data, state);
+    } else runLookup(entry.lemma, { entry, backState: state });
   }));
   bindPronunciation();
 }
