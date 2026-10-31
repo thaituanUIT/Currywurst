@@ -1,4 +1,4 @@
-# Currywurst
+# <img src="icon.svg" alt="Currywurst icon" width="48" height="48" align="center"> Currywurst
 
 Look up German and English words while you read in Chrome or Microsoft Edge. Currywurst shows translations, pronunciation, and available German grammar and word forms from Verbformen.
 
