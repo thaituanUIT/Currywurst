@@ -209,7 +209,6 @@ function bindPronunciation() {
     const voice = window.speechSynthesis.getVoices().find((candidate) => candidate.lang.toLowerCase().startsWith(utterance.lang.slice(0, 2)));
     if (voice) utterance.voice = voice;
     utterance.onerror = (event) => { if (event.error !== "canceled" && event.error !== "interrupted") status.textContent = "Could not play this word. Check your browser's speech voices."; };
-    status.textContent = "Synthesized pronunciation";
     window.speechSynthesis.speak(utterance);
   }));
 }
