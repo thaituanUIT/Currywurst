@@ -51,15 +51,17 @@ function parseVerbformen(html, word, sourceUrl) {
   const matchingForms = formLines.filter((line) => line.toLowerCase() === word.toLowerCase() || /^[\p{L}äöüÄÖÜß-]+$/.test(line) && line.length > 2);
   const forms = { Article: article, Singular: matchingForms[0] || word, Plural: matchingForms[1] || "" };
   const nounArticle = partOfSpeech === "noun" ? nounArticleFromTags(grammarTags) : "";
-  const headwordForms = partOfSpeech === "noun" ? (formLines.find((line) => {
+  const headerForms = partOfSpeech === "noun" ? (formLines.find((line) => {
     const values = line.split("·");
     return values.length === 2 && values.every((value) => /^[\p{L}\s()/'"⁰¹²³⁴⁵⁶⁷⁸⁹-]+$/u.test(value.trim()));
   }) || "").split("·").map((value) => value.trim()).filter(Boolean) : [];
+  const statedForms = partOfSpeech === "noun" ? extractStatedNounForms(entryText.slice(0, 2000)) : [];
+  const headwordForms = [...new Set([...headerForms, ...statedForms])];
   if (nounArticle) forms.Article = `${nounArticle} ${lemma}`;
   if (partOfSpeech === "noun") {
     forms.Singular = lemma;
-    forms.Genitive = headwordForms[0] || "";
-    forms.Plural = headwordForms[1] || "";
+    forms.Genitive = headerForms[0] || statedForms[0] || "";
+    forms.Plural = headerForms[1] || statedForms[1] || "";
   }
   const variants = partOfSpeech === "noun" ? extractNounVariants(doc, lemma, sourceUrl) : [];
   const usageNotes = [...new Set(lines.filter((line) => /^[⁰¹²³⁴⁵⁶⁷⁸⁹0-9]+\s+/.test(line) && /\b(?:regional|southern|austria|switzerland|colloquial|obsolete|rare|usage|depends|only)\b/i.test(line)).map((line) => line.replace(/^[⁰¹²³⁴⁵⁶⁷⁸⁹0-9]+\s+/, "")))].slice(0, 4);
@@ -419,6 +421,11 @@ function nounArticleFromTags(tags = []) {
     if (tag === "neutral" || tag === "neuter") return "das";
   }
   return "";
+}
+
+function extractStatedNounForms(text) {
+  const match = text.replace(/\s+/g, " ").match(/\bgenitive singular\s+["“„]?([\p{L}()/'’-]+)["”]?\s+and\s+nominative plural\s+["“„]?([\p{L}()/'’-]+)["”]?/iu);
+  return match ? [match[1], match[2]] : [];
 }
 
 function nounVariantArticle(label, lemma) {

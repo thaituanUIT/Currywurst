@@ -26,8 +26,8 @@ Some number words are presented as adjectives or nouns. No separate numeral or i
 
 1. Request the selected word using the general lookup with English translations (`l=11`).
 2. Accept a matching dictionary entry or a matching search card. A redirect by itself is not proof that the selected word matches.
-3. If necessary, try the conjugation search and general search routes for the same word.
-4. For a single-word imperative stem, try at most two related infinitive spellings. Each result must still match the **original selection** in its source forms.
+3. If necessary, try the noun-declension search for a capitalized selection, or conjugation search otherwise, followed by general search for the same word.
+4. Try at most two plausible noun singulars for an inflected noun, such as `Vokabeln → Vokabel`. Accept a candidate only if the source lists the original selection in its forms. For a single-word imperative stem, also try at most two related infinitive spellings within the shared request limit. Each result must still match the **original selection**, never just the guessed lemma.
 5. If a response is a partial tense/voice page, request its complete dictionary entry when available.
 
 German resolution shares a cache within the lookup and makes at most six distinct dictionary requests. English search and automatic direction fallback can make additional requests. This is a bounded lookup, not bulk crawling.
@@ -42,6 +42,7 @@ German resolution shares a cache within the lookup and makes at most six distinc
 - **Comparison:** Check adjective comparison forms, including irregular examples such as `gut → besser → am besten`.
 - **Search-only entries:** Keep lexical cards for words that have no inflection tables or dedicated detail links.
 - **Multiple noun genders:** Preserve separate entries for linked articles, such as `die Vokabel` and `das Vokabel`. Article buttons load the chosen variant on demand; meanings, usage notes, and declension tables stay specific to that variant. Identical English glosses do not cause different gender entries to be discarded.
+- **Noun plural recovery:** If a compact header is unavailable, also read the explicitly stated genitive and nominative-plural pair in the entry introduction. Candidate singulars do not become matches unless this source evidence or an inflection table verifies the selection.
 
 ## Verification and limits
 

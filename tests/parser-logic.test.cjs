@@ -107,3 +107,11 @@ test('explicit noun header forms can verify a plural on a search card', () => {
   assert.equal(parser.isGermanEntryMatch(entry, 'Vokabeln'), true);
   assert.equal(parser.isGermanEntryMatch(entry, 'Vokabelheft'), false);
 });
+
+test('explicit noun introduction verifies a plural when the compact header is unavailable', () => {
+  const forms = parser.extractStatedNounForms('The most important forms of "Vokabel" are: genitive singular "Vokabel" and nominative plural "Vokabeln".');
+  assert.deepEqual(plain(forms), ['Vokabel','Vokabeln']);
+  const entry = { title: 'German noun Vokabel', lemma: 'Vokabel', meaning: 'word', headwordForms: forms, inflectionTables: [] };
+  assert.equal(parser.isGermanEntryMatch(entry, 'Vokabeln'), true);
+  assert.deepEqual(plain(parser.extractStatedNounForms('An example sentence contains Vokabeln.')), []);
+});

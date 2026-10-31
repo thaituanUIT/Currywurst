@@ -18,6 +18,8 @@ Major features and fixes in Currywurst. Version numbers follow the extension man
 
 ### Fixed
 
+- Recover noun singulars such as **Vokabeln → Vokabel** when plural searches return no matching entry, verifying the selected form against the source's stated forms or declension tables.
+- Read explicitly stated genitive and plural forms when a noun's compact header is unavailable.
 - Keep the original inflected word available for pronunciation when switching noun variants.
 - Retain the current entry if loading an alternate noun variant fails.
 - Preserve alternate articles when a search result opens its full dictionary entry.

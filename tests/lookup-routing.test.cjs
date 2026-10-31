@@ -114,3 +114,27 @@ test('matching noun cards preserve alternate genders without fetching them eager
   assert.equal(h.calls.length, 2);
   assert.ok(h.calls.every(url => !url.pathname.endsWith('Vokabel_neut.htm')));
 });
+
+test('Vokabeln recovers Vokabel when plural query routes return no matching entry', async () => {
+  const variants = [
+    { article: 'die', lemma: 'Vokabel', label: 'die Vokabel', url: 'https://www.verbformen.com/declension/nouns/Vokabel.htm' },
+    { article: 'das', lemma: 'Vokabel', label: 'das Vokabel', url: 'https://www.verbformen.com/declension/nouns/Vokabel_neut.htm' },
+  ];
+  const noun = { title: 'Declension of German noun Vokabel with plural and article', lemma: 'Vokabel', partOfSpeech: 'noun', article: 'die', meaning: 'word', variants, headwordForms: ['Vokabel','Vokabeln'], inflectionTables: [] };
+  for (const query of ['Vokabeln', 'vokabeln']) {
+    const h = harness(url => url.pathname === '/declension/nouns/Vokabel.htm' ? { html: { entry: noun } } : {});
+    const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+    assert.equal(result.data.lemma, 'Vokabel');
+    assert.equal(result.data.word, query);
+    assert.equal(result.data.variants.length, 2);
+    assert.equal(h.calls.length, 4);
+    assert.equal(h.calls[3].pathname, '/declension/nouns/Vokabel.htm');
+  }
+});
+
+test('noun recovery rejects guessed singulars that do not list the selected plural', async () => {
+  const h = harness(url => url.pathname === '/declension/nouns/Vokabel.htm' ? { html: { entry: { title: 'German noun Vokabel', lemma: 'Vokabel', meaning: 'word', headwordForms: ['Vokabels','Vokabel'], inflectionTables: [] } } } : {});
+  const result = await h.context.lookupGermanEntry('Vokabeln', h.load, h.signal);
+  assert.equal(result, null);
+  assert.ok(h.calls.length <= 6);
+});

@@ -43,8 +43,16 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
   };
   const direct = await inspect(`https://www.verbformen.com/?w=${encodeURIComponent(word)}&l=11`);
   if (direct || !recover) return direct;
-  for (const path of ["conjugation/", "search/"]) {
+  const nounSelection = /^\p{Lu}/u.test(word);
+  for (const path of [nounSelection ? "declension/nouns/" : "conjugation/", "search/"]) {
     const found = await inspect(`https://www.verbformen.com/${path}?w=${encodeURIComponent(word)}&l=11`);
+    if (found) return found;
+  }
+  for (const candidate of germanNounCandidates(word)) {
+    const url = /^[A-Za-z-]+$/.test(candidate)
+      ? `https://www.verbformen.com/declension/nouns/${encodeURIComponent(candidate)}.htm`
+      : `https://www.verbformen.com/declension/nouns/?w=${encodeURIComponent(candidate)}&l=11`;
+    const found = await inspect(url);
     if (found) return found;
   }
   for (const candidate of germanImperativeCandidates(word)) {
@@ -53,6 +61,20 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     if (found) return found;
   }
   return null;
+}
+
+function germanNounCandidates(word) {
+  if (!/^[\p{L}-]{3,60}$/u.test(word)) return [];
+  const value = word.normalize("NFC");
+  const capitalize = (text) => text[0].toLocaleUpperCase("de-DE") + text.slice(1);
+  const withoutUmlaut = (text) => text.replace(/[äöüÄÖÜ]/g, (letter) => ({ ä: "a", ö: "o", ü: "u", Ä: "A", Ö: "O", Ü: "U" })[letter]);
+  let stems = [];
+  if (/ern$/i.test(value)) stems = [withoutUmlaut(value.slice(0, -1)), withoutUmlaut(value.slice(0, -3))];
+  else if (/n$/i.test(value)) stems = [value.slice(0, -1), value.replace(/en$/i, "")];
+  else if (/er$/i.test(value) && !/ier$/i.test(value)) stems = [withoutUmlaut(value.slice(0, -2)), value.slice(0, -2)];
+  else if (/es$/i.test(value)) stems = [value.slice(0, -2), value.slice(0, -1)];
+  else if (/[es]$/i.test(value)) stems = [value.slice(0, -1)];
+  return [...new Set(stems.filter((stem) => stem.length >= 2 && stem !== value).map(capitalize))].slice(0, 2);
 }
 
 function mergeNounVariants(data, extra) {
