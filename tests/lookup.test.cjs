@@ -221,5 +221,5 @@ test('switching back to German also clears the saved query without sending a loo
   assert.equal(h.saved.at(-1).lookupWord, '');
   assert.equal(h.saved.at(-1).lookupMode, 'de-en');
   assert.equal(h.requests.length, 0);
-  assert.match(h.elements['#result'].innerHTML, /Make German make sense/);
+  assert.match(h.elements['#result'].innerHTML, /Type a word/);
 });

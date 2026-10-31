@@ -42,14 +42,13 @@ function setMode(nextMode) {
   modeToggle.setAttribute("aria-pressed", String(english));
   modeToggle.setAttribute("aria-label", `${english ? "English to German" : "German to English"}. Click to switch to ${english ? "German to English" : "English to German"}`);
   searchLabel.textContent = english ? "YOUR ENGLISH WORD" : "YOUR GERMAN WORD";
-  input.placeholder = english ? "e.g. small, brother, make" : "e.g. schön, Haus, gehen";
   input.setAttribute("aria-label", english ? "English word" : "German word");
   sourceLink.href = english ? "https://www.verbformen.com/en-de/" : "https://www.verbformen.com/";
 }
 
 function renderEmptyState() {
   result.scrollTop = 0;
-  result.innerHTML = `<div class="empty-state"><p class="eyebrow">A little clarity, word by word</p><h1>${mode === "en-de" ? "Find the German word." : "Make German make sense."}</h1><p class="hint">Select text on a page and choose <strong>Look up with Currywurst</strong>. The language is detected automatically. For typed searches, click the language button to choose the direction.</p></div>`;
+  result.innerHTML = '<div class="empty-state"><p class="hint">Type a word, or select text and right-click to look it up.</p></div>';
 }
 
 function stopPronunciation() {
