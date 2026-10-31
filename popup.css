@@ -86,13 +86,16 @@ button:active { transform: translateY(1px); }
 .ipa:empty { display: none; }
 .gloss { margin: 18px 0 0; padding-left: 12px; border-left: 3px solid #e5bc79; font-size: 17px; line-height: 1.5; overflow-wrap: anywhere; }
 .grammar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 15px; }
+.principal-parts { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
 .tag { border-radius: 6px; padding: 4px 8px; background: var(--soft); color: #796046; font-size: 11px; }
 .form-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .form-note strong { color: var(--accent); }
 .inflection-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 18px; }
 .inflection { min-width: 0; }
 .inflection:only-child { grid-column: 1 / -1; }
-.inflection h2 { margin: 0 0 9px; font-size: 11px; font-weight: 650; color: var(--muted); }
+.inflection-group { display: grid; gap: 15px; }
+.group-title { margin: 0; padding-bottom: 7px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 650; color: var(--accent); }
+.inflection h3 { margin: 0 0 9px; font-size: 11px; font-weight: 650; color: var(--muted); }
 .table-scroll { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .inflection table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
 .inflection .label-column { width: 88px; }

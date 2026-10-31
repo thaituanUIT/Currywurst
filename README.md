@@ -2,6 +2,8 @@
 
 Look up German and English words while you read in Chrome or Microsoft Edge. Currywurst shows translations, pronunciation, and available German grammar and word forms from Verbformen.
 
+See [CHANGELOG.md](CHANGELOG.md) for major updates, new features, and fixes.
+
 ## Install the extension
 
 This version is installed from a folder on your computer. Keep the folder where it is; the browser needs it to stay there.

@@ -3,9 +3,9 @@ function parseVerbformen(html, word, sourceUrl) {
   const cleanText = cleanDictionaryText;
   const heading = doc.querySelector("h1");
   const title = cleanText(heading?.textContent || "") || word;
-  const lemma = title.match(/\b(?:verb|noun|adjective|adverb|pronoun|article)\s+([\p{L}äöüÄÖÜß-]+)/iu)?.[1] || word;
+  const lemma = extractLemma(title, word);
   const main = heading?.closest("main, article") || heading?.parentElement?.parentElement || doc;
-  const text = cleanText(main?.innerText || main?.textContent || "");
+  const text = cleanText(dictionaryText(main));
   const headingIndex = text.indexOf(title);
   const entryText = headingIndex >= 0 ? text.slice(headingIndex).trim() : text;
   const audio = [
@@ -28,13 +28,21 @@ function parseVerbformen(html, word, sourceUrl) {
     .filter((value) => /[ˈˌəɐɛɪɔʊʃçʁøœyɡŋ]/u.test(value))
     .slice(0, 5);
   const lines = entryText.split("\n").map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
-  const level = lines.find((line) => /^(A1|A2|B1|B2|C1|C2)\s*[·.]?$/i.test(line)) || "";
-  const grammarLine = lines.find((line) => /\b(noun|verb|adjective|pronoun|article)\b/i.test(line) && /·/.test(line)) || "";
-  const grammarParts = grammarLine.split("·").map((part) => part.trim()).filter(Boolean);
-  const partOfSpeech = grammarParts[0] || "";
-  const grammar = grammarParts.slice(1, 3).join(" · ");
+  const summaryNode = [...main.querySelectorAll("p,div,span,small")].find((node) => {
+    const value = cleanText(node.textContent).replace(/\s+/g, " ");
+    return value.length < 220 && /^[ABC][12]\s*·/.test(value);
+  });
+  const grammarLine = summaryNode ? cleanText(summaryNode.textContent) : lines.find((line) => /^[ABC][12]\s*·/.test(line)) || "";
+  const { level, partOfSpeech, grammarTags } = parseGrammarSummary(grammarLine, title);
+  const grammar = grammarTags.join(" · ");
+  const principalParts = partOfSpeech === "verb" ? lines.find((line) => {
+    const parts = line.split("·").map((part) => part.trim());
+    return parts.length === 3 && line.length < 180 && !/^[ABC][12]\b/.test(line)
+      && parts.every((part) => /^[\p{L}\s()'-]+$/u.test(part))
+      && !/\b(?:regular|irregular|verb|noun|adjective|separable|inseparable)\b/i.test(line);
+  }) || "" : "";
   const meaning = extractEnglishMeaning(doc, heading, cleanText);
-  const formStart = grammarLine ? lines.indexOf(grammarLine) + 1 : -1;
+  const formStart = lines.findIndex((line) => /^(?:[ABC][12]\s*·|(?:noun|verb|adjective)\s*·)/i.test(line)) + 1;
   const formLines = formStart >= 0 ? lines.slice(formStart, formStart + 8) : [];
   const article = formLines.find((line) => /^(der|die|das)\s+/i.test(line) && line.toLowerCase().includes(word.toLowerCase())) || "";
   const matchingForms = formLines.filter((line) => line.toLowerCase() === word.toLowerCase() || /^[\p{L}äöüÄÖÜß-]+$/.test(line) && line.length > 2);
@@ -44,7 +52,9 @@ function parseVerbformen(html, word, sourceUrl) {
   const adjectiveLabels = /^(masculine|feminine|neutral|neuter|plural|masc\.?|fem\.?|neut\.?|singular)$/i;
   const sectionHeadings = [...doc.querySelectorAll("h2,h3,h4,h5")].filter((heading) => cleanText(heading.textContent));
   const tableCandidates = [...doc.querySelectorAll("table")].map((table) => {
-    const rows = [...table.querySelectorAll("tr")].map((row) => [...row.querySelectorAll("th,td")].map((cell) => cleanText(cell.textContent).replace(/\s+/g, " "))).filter((row) => row.length > 1);
+    const path = headingPathFor(table, sectionHeadings);
+    const rowData = [...table.rows].map((row) => [...row.cells]).filter((cells) => cells.length);
+    const rows = rowData.map((cells) => cells.map((cell) => cleanText(cell.textContent).replace(/\s+/g, " ")));
     const labelRows = rows.filter((row) => caseLabels.test(row[0]) || verbLabels.test(row[0]) || adjectiveLabels.test(row[0]));
     const labels = labelRows.map((row) => row[0]);
     const isCaseTable = labels.filter((label) => caseLabels.test(label)).length >= 3;
@@ -52,20 +62,17 @@ function parseVerbformen(html, word, sourceUrl) {
     const hasVerbFormLabels = labels.some((label) => /^(infinitive|participle|imperative|present|imperfect|past|perfect|future|present subj\.?|imperf\.? subj\.?|infinitiv|partizip|imperativ|konjunktiv|präsens|präteritum|perfekt|futur)$/i.test(label));
     const isVerbTable = verbRowCount >= 3 || hasVerbFormLabels;
     const isAdjectiveTable = labels.some((label) => adjectiveLabels.test(label));
-    if (!isCaseTable && !isVerbTable && !isAdjectiveTable) return null;
-    let title = isVerbTable ? "Conjugation" : "Declension";
-    const precedingHeadings = sectionHeadings.filter((heading) => heading.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).slice(-2);
-    if (precedingHeadings.length) title = precedingHeadings.map((heading) => cleanText(heading.textContent).replace(/\s+/g, " ")).filter(Boolean).join(" · ");
-    const cells = [...table.rows].map(row => [...row.cells].map(cell => ({header: cell.tagName === "TH", colSpan: cell.colSpan, rowSpan: cell.rowSpan}))).filter(row => row.length > 1);
-    return { title, rows: rows.slice(0, 25), cells: cells.slice(0, 25) };
+    const shortVerbForms = partOfSpeech === "verb" && path.some((label) => /^(?:Imperative|Infinitive(?:\/Participle| I{1,2})?|Participle(?: I{1,2})?)$/i.test(label));
+    if (!isCaseTable && !isVerbTable && !isAdjectiveTable && !shortVerbForms) return null;
+    const title = path.at(-1) || (isVerbTable ? "Conjugation" : "Declension");
+    const group = path.slice(0, -1).join(" · ");
+    const cells = rowData.map(row => row.map(cell => ({header: cell.tagName === "TH", colSpan: cell.colSpan, rowSpan: cell.rowSpan})));
+    return { title, group, rows: rows.slice(0, 25), cells: cells.slice(0, 25), node: table };
   }).filter(Boolean);
-  const seenTables = new Set();
-  const inflectionTables = tableCandidates.filter((table) => {
-    const signature = JSON.stringify(table.rows);
-    if (seenTables.has(signature)) return false;
-    seenTables.add(signature);
-    return true;
-  });
+  if (partOfSpeech === "verb") {
+    tableCandidates.push(...extractNonfiniteSections(doc, sectionHeadings, tableCandidates));
+  }
+  const inflectionTables = deduplicateInflections(tableCandidates).map(({ node, ...table }) => table);
   const matchedRow = inflectionTables.flatMap((table) => table.rows.map((row) => ({ title: table.title, row })))
     .find(({ row }) => row.some((cell) => cell.toLocaleLowerCase() === word.toLocaleLowerCase()));
   const matchedForm = matchedRow ? `${matchedRow.row[0]} · ${matchedRow.title}` : "";
@@ -77,6 +84,8 @@ function parseVerbformen(html, word, sourceUrl) {
     level: level.replace(/[·.]$/, ""),
     partOfSpeech,
     grammar,
+    grammarTags,
+    principalParts,
     meaning,
     forms,
     inflectionTables,
@@ -114,6 +123,78 @@ function extractEnglishMeaning(doc, heading, cleanText) {
     .map((node) => cleanText(node.textContent).replace(/\s+/g, " "))
     .find(Boolean);
   return englishText || "";
+}
+
+function dictionaryText(root) {
+  const copy = root.cloneNode(true);
+  copy.querySelectorAll("script,style,noscript,nav,button,form").forEach((node) => node.remove());
+  copy.querySelectorAll("br").forEach((node) => node.replaceWith(document.createTextNode("\n")));
+  copy.querySelectorAll("p,div,section,li,tr,h1,h2,h3,h4,h5").forEach((node) => node.appendChild(document.createTextNode("\n")));
+  return copy.textContent || "";
+}
+
+function extractLemma(title, fallback) {
+  const match = title.replace(/\s+/g, " ").match(/\b(verb|noun|adjective|adverb|pronoun|article)\s+(.+?)(?:\s+with plural\b.*|$)/iu);
+  if (!match) return fallback;
+  const lemma = match[2].replace(/\s*·\s*/g, "").trim();
+  return match[1].toLowerCase() === "verb" ? lemma.replace(/\s+/g, "") : lemma;
+}
+
+function parseGrammarSummary(summary, title) {
+  const parts = summary.replace(/\s+/g, " ").split("·").map((part) => part.trim()).filter(Boolean);
+  const level = parts.find((part) => /^[ABC][12]$/.test(part)) || "";
+  const partOfSpeech = title.match(/\b(verb|noun|adjective|adverb|pronoun|article)\s+/i)?.[1]?.toLowerCase()
+    || parts.find((part) => /^(verb|noun|adjective|adverb|pronoun|article)$/i.test(part)) || "";
+  // Accept grammar labels, never arbitrary paragraphs that happen to contain
+  // the word 'verb' and a separable-word marker.
+  const grammarTags = [...new Set(parts.filter((part) => /^(?:irregular|regular|haben|sein|separable|inseparable|masculine|feminine|neutral|neuter|strong|weak|mixed|positive|comparative|superlative|not comparable|comparable|indeclinable|reflexive|transitive|intransitive|passive|only singular|only plural)$/i.test(part)))];
+  return { level, partOfSpeech, grammarTags };
+}
+
+function headingPathFor(node, headings) {
+  const path = [];
+  for (const heading of headings) {
+    if (heading !== node && !(heading.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+    const text = cleanDictionaryText(heading.textContent).replace(/\s+/g, " ");
+    if (!text || text.length > 100) continue;
+    const level = Number(heading.tagName.slice(1));
+    while (path.length && path.at(-1).level >= level) path.pop();
+    path.push({ level, text });
+  }
+  return path.map((heading) => heading.text);
+}
+
+function extractNonfiniteSections(doc, headings, tables) {
+  const sections = [];
+  for (const heading of headings) {
+    const label = cleanDictionaryText(heading.textContent).replace(/\s+/g, " ");
+    if (!/^(?:Infinitive|Participle)(?: I{1,2})?$/i.test(label)) continue;
+    const nextHeading = headings.find((other) => heading.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (tables.some(({ node }) => (heading.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) && (!nextHeading || (node.compareDocumentPosition(nextHeading) & Node.DOCUMENT_POSITION_FOLLOWING)))) continue;
+    const range = document.createRange();
+    range.setStartAfter(heading);
+    if (nextHeading) range.setEndBefore(nextHeading);
+    else range.setEnd(doc, doc.childNodes.length);
+    const values = [...new Set(dictionaryText(range.cloneContents()).split("\n").map((line) => line.replace(/\s+/g, " ").trim()).filter((line) => /^[\p{L}-]+(?:\s+[\p{L}-]+){0,3}$/u.test(line) && !/^(?:Definitions|Rules|Resources|Video|PDF|Our|Handy|The|Infinitive|Participle)\b/i.test(line)))].slice(0, 2);
+    range.detach();
+    if (!values.length) continue;
+    const path = headingPathFor(heading, headings);
+    sections.push({ title: label, group: path.slice(0, -1).join(" · "), rows: values.map((value) => [value]), cells: values.map(() => [{ header: false, colSpan: 1, rowSpan: 1 }]) });
+  }
+  return sections;
+}
+
+function deduplicateInflections(tables) {
+  const detailedRows = new Set(tables.filter((table) => table.group).map((table) => JSON.stringify(table.rows)));
+  const seen = new Set();
+  return tables.filter((table) => {
+    const rows = JSON.stringify(table.rows);
+    if (!table.group && detailedRows.has(rows)) return false;
+    const signature = JSON.stringify([table.group || "", table.title, table.rows]);
+    if (seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
 }
 
 

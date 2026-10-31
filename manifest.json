@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Currywurst",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "Look up selected German words on Verbformen.",
   "permissions": ["contextMenus", "storage", "activeTab", "scripting"],
   "host_permissions": ["https://www.verbformen.com/*"],
