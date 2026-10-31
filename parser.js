@@ -1,16 +1,6 @@
 function parseVerbformen(html, word, sourceUrl) {
-  // Strip executable markup before parsing. The extension CSP blocks inline
-  // event handlers, and none of the page's scripts are needed for text lookup.
-  const safeHtml = html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+(?:href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\1/gi, "");
-  const template = document.createElement("template");
-  template.innerHTML = safeHtml;
-  const doc = template.content;
-  // Feedback prompts are site UI, not dictionary content. Remove them from
-  // extracted text and exclude their headings before finding section titles.
-  const cleanText = (value) => value.replace(/Do\s+you\s+like\s+the\s+following\s+translation\s*\?/gi, "").trim();
+  const doc = parseDictionaryDocument(html);
+  const cleanText = cleanDictionaryText;
   const heading = doc.querySelector("h1");
   const title = cleanText(heading?.textContent || "") || word;
   const lemma = title.match(/\b(?:verb|noun|adjective|adverb|pronoun|article)\s+([\p{L}äöüÄÖÜß-]+)/iu)?.[1] || word;
@@ -31,6 +21,8 @@ function parseVerbformen(html, word, sourceUrl) {
       catch { return false; }
     })
     .map((src) => new URL(src, sourceUrl).href);
+  // Feedback prompts are site UI, not dictionary content. Remove them from
+  // extracted text and exclude their headings before finding section titles.
   const ipa = [...entryText.matchAll(/\/[^/\n]{1,40}\//g)]
     .map((match) => match[0])
     .filter((value) => /[ˈˌəɐɛɪɔʊʃçʁøœyɡŋ]/u.test(value))
@@ -122,5 +114,97 @@ function extractEnglishMeaning(doc, heading, cleanText) {
     .map((node) => cleanText(node.textContent).replace(/\s+/g, " "))
     .find(Boolean);
   return englishText || "";
+}
+
+
+function parseDictionaryDocument(html) {
+  // Strip executable markup before parsing. The extension CSP blocks inline
+  // event handlers, and none of the page's scripts are needed for text lookup.
+  const safeHtml = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+(?:href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\1/gi, "");
+  const template = document.createElement("template");
+  template.innerHTML = safeHtml;
+  return template.content;
+}
+
+function cleanDictionaryText(value) {
+  return value.replace(/Do\s+you\s+like\s+the\s+following\s+translation\s*\?/gi, "").trim();
+}
+
+function englishGlossMatches(gloss, query) {
+  const normalize = (value) => value.toLowerCase().replace(/^to\s+/, "").replace(/[^\p{L}\p{N}\s'-]/gu, " ").replace(/\s+/g, " ").trim();
+  const needle = normalize(query);
+  return Boolean(needle) && gloss.split(/[,;]+/).some((sense) => normalize(sense) === needle);
+}
+
+function dictionaryEntryUrl(href, baseUrl) {
+  try {
+    const url = new URL(href, baseUrl);
+    if (url.origin !== "https://www.verbformen.com") return null;
+    return /^\/(?:conjugation\/[^/]+|declension\/(?:nouns|adjectives|pronouns|articles)\/[^/]+)\.htm$/.test(url.pathname) ? url.href : null;
+  } catch { return null; }
+}
+
+function parseEnglishSearchForm(html, sourceUrl) {
+  const doc = parseDictionaryDocument(html);
+  const form = [...doc.querySelectorAll("form")].find((node) => node.querySelector('[name="w"]'));
+  const fields = [];
+  if (form) {
+    for (const control of form.querySelectorAll("input[name], select[name]")) {
+      const type = (control.getAttribute("type") || "text").toLowerCase();
+      if (control.disabled || ["submit", "button", "reset", "image"].includes(type)) continue;
+      if (["checkbox", "radio"].includes(type) && !control.checked) continue;
+      fields.push([control.getAttribute("name"), control.value || ""]);
+    }
+  }
+  const action = new URL(form?.getAttribute("action") || sourceUrl, sourceUrl);
+  if (action.origin !== "https://www.verbformen.com") throw new Error("Unexpected dictionary search address.");
+  return { action: action.href, method: form?.getAttribute("method")?.toUpperCase() === "POST" ? "POST" : "GET", fields };
+}
+
+function parseEnglishResults(html, query, sourceUrl) {
+  const doc = parseDictionaryDocument(html);
+  const heading = doc.querySelector("h1");
+  const linksIn = (node) => [...node.querySelectorAll("a[href]")].map((link) => ({ link, url: dictionaryEntryUrl(link.getAttribute("href"), sourceUrl) })).filter((entry) => entry.url);
+  const markers = [...doc.querySelectorAll('img[alt], img[title], p[lang="en"], span[lang="en"]')].filter((node) =>
+    node.getAttribute("lang") === "en" || /^(English|Englisch)$/i.test(node.getAttribute("alt") || node.getAttribute("title") || ""),
+  ).filter((node) => !heading || Boolean(heading.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const results = [];
+  const seen = new Set();
+  for (const marker of markers) {
+    let card = marker.parentElement;
+    for (let depth = 0; card && depth < 7; depth++, card = card.parentElement) {
+      const links = linksIn(card);
+      const uniqueUrls = new Set(links.map((entry) => entry.url));
+      if (!uniqueUrls.size) continue;
+      if (uniqueUrls.size > 4) break;
+      const gloss = extractEnglishMeaning(card, null, cleanDictionaryText);
+      if (!englishGlossMatches(gloss, query)) break;
+      // Entries link their German headword to its conjugation/declension page.
+      const candidate = links.find(({ link }) => /^[\p{L}\s·'-]+(?:,\s*(?:der|die|das))?$/u.test(link.textContent.trim()));
+      if (!candidate) continue;
+      const text = cleanDictionaryText(card.textContent).replace(/\s+/g, " ");
+      const pos = text.match(/\b(noun|verb|adjective|pronoun|article|adverb)\b/i)?.[1]?.toLowerCase() || "";
+      const label = candidate.link.textContent.replace(/·/g, "").replace(/\s+/g, " ").trim();
+      const lemma = label.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "");
+      const article = pos === "noun" ? text.match(/\b(der|die|das)\b/)?.[1] || (text.includes("feminine") ? "die" : text.includes("masculine") ? "der" : /\b(neutral|neuter)\b/.test(text) ? "das" : "") : "";
+      const signature = `${candidate.url}|${gloss}`;
+      if (!seen.has(signature)) {
+        results.push({ lemma, label: article ? `${article} ${lemma}` : lemma, partOfSpeech: pos, meaning: gloss, url: candidate.url });
+        seen.add(signature);
+      }
+      break;
+    }
+  }
+  // A search with one match can redirect straight to the German entry.
+  if (!results.length && /\b(?:verb|noun|adjective|pronoun|article)\s+/i.test(heading?.textContent || "")) {
+    const entry = parseVerbformen(html, query, sourceUrl);
+    if (englishGlossMatches(entry.meaning, query)) {
+      results.push({ lemma: entry.lemma, label: entry.forms.Article || entry.lemma, partOfSpeech: entry.partOfSpeech, meaning: entry.meaning, url: dictionaryEntryUrl(sourceUrl, sourceUrl) || `https://www.verbformen.com/?w=${encodeURIComponent(entry.lemma)}` });
+    }
+  }
+  return results;
 }
 
