@@ -16,6 +16,19 @@ This version is installed from a folder on your computer. Keep the folder where 
 4. Choose the Currywurst folder you downloaded or were given.
 5. If you do not see the extension icon, open the browser’s Extensions menu (the puzzle-piece icon) and pin **Currywurst**.
 
+## Update the extension
+
+**This folder-installed version does not update automatically.** Until Currywurst is available in a browser extension store, check this repository for new versions.
+
+1. Download the latest version and extract it.
+2. Replace the files in your existing Currywurst installation folder with the new files, keeping the folder in the same location.
+3. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
+4. Click **Reload** on the Currywurst card, then reopen the popup.
+
+If you installed from a Git checkout, pull the latest changes instead of downloading and replacing files, then reload the extension.
+
+Once a store version is published, its installation link will be added here. To receive automatic updates, install that store version; your current folder installation will not switch to it automatically.
+
 ## Look up a word
 
 1. Open a webpage that contains German or English text.
