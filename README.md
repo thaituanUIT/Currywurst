@@ -32,6 +32,36 @@ Some words, such as “Gift” or “Bank”, exist in both languages. If the au
 - **The speaker does not sound like a recording:** When a recording is unavailable, the browser uses a speech voice in the word's language instead. Available voices depend on your computer.
 - **The extension changed but the browser still shows the old version:** Open the Extensions page and click the reload button on the Currywurst card.
 
-Each lookup is requested only when you choose to look up a word. The extension does not scan webpages or collect words in the background.
+## Privacy and data use
 
-For a right-click lookup, Currywurst reads the selected text's language label on that page. It sends the selected word to Verbformen; it does not send the surrounding page text.
+This disclosure describes the current version of Currywurst in this repository.
+
+**What the extension reads:** The text you select or type for a lookup. When you use the right-click action, it also reads the language label of the selected element or page to help choose the lookup direction. It does not send surrounding page text to the dictionary, scan pages in the background, or collect your browsing history.
+
+**What leaves your browser:** Lookup text is sent over HTTPS to [Verbformen](https://www.verbformen.com/) to retrieve translations and word forms. Automatic language detection may try both lookup directions. Opening a German match requests that word's entry. Verbformen receives the lookup text and standard connection information, such as your IP address, and may retain its own request logs. Its own privacy terms apply to those requests.
+
+**Pronunciation:** Playing a dictionary recording requests an audio file from Verbformen. If a recording is unavailable, Currywurst asks the browser to speak the word. Depending on the voice and your browser or operating system, speech may be generated on your device or by a third-party speech service. That service may receive the word being spoken.
+
+**What stays on your device:** The last lookup text, selected lookup direction, and language-detection settings are saved in the extension's local browser storage. This is not a complete lookup history and is not synced through Currywurst. Saved values remain until replaced or the browser clears the extension's data. Reopening the popup can repeat the last lookup and send that text to Verbformen again.
+
+The current extension has no analytics, advertising, account system, or developer-operated lookup server. Only select or type text you are comfortable sending to the dictionary and, when used, the speech service.
+
+## Permissions explained
+
+| Permission | Why Currywurst needs it |
+| --- | --- |
+| Context menus | Adds **Look up with Currywurst** to the right-click menu. |
+| Local storage | Remembers your last lookup and direction. |
+| Active tab | Gives temporary access to the page you invoke the extension on, so it can read the selection's language label. |
+| Scripting | Runs that small language-label check after your right-click lookup. |
+| Access to `https://www.verbformen.com/*` | Retrieves dictionary entries, search results, and pronunciation recordings. |
+
+Currywurst does not request access to all websites, your browsing history, or the browser's cookie-management API.
+
+## Security and reporting
+
+Currywurst uses bundled JavaScript and the browser's standard Manifest V3 security policy. Fetched dictionary HTML is processed as data; extracted text is escaped before it is displayed in the popup. Lookup request destinations and extracted dictionary-entry links are checked against the expected Verbformen address.
+
+The project includes automated behavior tests, but these are not an independent security audit or a guarantee that the extension is free of vulnerabilities. Browser testing, review of external HTML handling, and security scanning remain important before each public release. A passing test result should be associated with the exact version or commit that was checked.
+
+If you find a security concern, use the repository's private vulnerability reporting option if it is enabled. Otherwise, ask the maintainer for a private contact method. Please do not post personal lookup text, credentials, or sensitive exploit details in public issues.
