@@ -2,6 +2,14 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## Unreleased
+
+### Added
+
+- Save up to 100 German dictionary forms with their English meanings, with duplicate prevention and separate entries for different noun genders.
+- Browse saved words offline, open a saved word in German-to-English lookup, and delete entries with a five-second Undo option.
+- Keep the list in local browser storage across restarts, with serialized writes to enforce the limit across popup windows.
+
 ## 1.2.1
 
 ### Fixed

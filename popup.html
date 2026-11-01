@@ -9,13 +9,21 @@
 <body>
   <main>
     <header><div class="brand-mark" aria-hidden="true"><img src="icon.svg" alt="" width="36" height="36"></div><span class="brand-name">Currywurst</span><button class="source-label" id="mode-toggle" type="button" aria-label="German to English. Click to switch to English to German" aria-pressed="false" title="Click to reverse direction">DE → EN</button></header>
-    <label class="search-label" for="word">YOUR GERMAN WORD</label>
-    <form id="search-form"><input id="word" autocomplete="off" spellcheck="false" aria-label="German word"><button type="submit">Look up</button></form>
-    <section id="result" aria-live="polite"><div class="empty-state"><p class="hint">Type a word, or select text and right-click to look it up.</p></div></section>
+    <nav class="view-nav" aria-label="Dictionary views"><button id="lookup-tab" type="button" aria-pressed="true">Lookup</button><button id="saved-tab" type="button" aria-pressed="false">Saved <span id="saved-count">…/100</span></button></nav>
+    <section id="lookup-view">
+      <label class="search-label" for="word">YOUR GERMAN WORD</label>
+      <form id="search-form"><input id="word" autocomplete="off" spellcheck="false" aria-label="German word"><button type="submit">Look up</button></form>
+      <section id="result" aria-live="polite"><div class="empty-state"><p class="hint">Type a word, or select text and right-click to look it up.</p></div></section>
+    </section>
+    <section id="saved-view" hidden>
+      <div id="saved-list" role="list" aria-label="Saved words"><p class="muted">Loading saved words…</p></div>
+      <div class="saved-feedback"><p id="saved-status" class="muted" role="status"></p><button id="undo-delete" class="text-button" type="button" hidden>Undo</button></div>
+    </section>
     <footer><span lang="de">„Übung macht den Meister.“</span><a href="https://www.verbformen.com/" id="source" target="_blank" rel="noreferrer">Verbformen ↗</a></footer>
   </main>
   <script src="parser.js"></script>
   <script src="lookup.js"></script>
+  <script src="saved-words.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

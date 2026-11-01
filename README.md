@@ -50,6 +50,16 @@ Some words, such as “Gift” or “Bank”, exist in both languages. If the au
 
 Some nouns have more than one article. When article buttons appear, such as **die Vokabel** and **das Vokabel**, click one to see its meaning, usage notes, and word forms.
 
+## Save words
+
+Click **Save** beside a German word to keep its dictionary form and English meaning. For example, looking up **machst** saves **machen**. In English-to-German mode, open a German match first, then save it. Noun articles are retained, and different genders can be saved separately.
+
+Open **Saved** to browse your list, newest first. The counter shows how many of the **100 available places** you have used. Clicking a word or its meaning returns to **Lookup** and starts a fresh German-to-English lookup.
+
+Click **×** beside a saved word to delete it. **Undo** is available for five seconds. When the list is full, delete a word before adding another; existing entries are kept.
+
+Your list stays on this browser after a restart and can be read offline. Looking up a saved word requires internet. Saving and deleting do not send dictionary requests, and the list is not synced to other browsers or devices.
+
 ## If something goes wrong
 
 - **The lookup does not open:** Make sure a single word is selected, then right-click it again.
@@ -69,6 +79,8 @@ This disclosure describes the current version of Currywurst in this repository.
 
 **What stays on your device:** The last lookup text and selected lookup direction are saved in the extension's local browser storage. This is not a complete lookup history and is not synced through Currywurst. Saved values remain until replaced or the browser clears the extension's data. A right-click lookup temporarily stores the selected word and its language hint in browser-session storage, then consumes that request when the popup opens. Reopening the popup restores the search text without sending it to Verbformen; click **Look up** or invoke a fresh right-click lookup to search again.
 
+Words you choose to save are also stored locally, including their dictionary form, English meaning, word type, noun article when available, dictionary link, and save time. They remain until you delete them, clear the extension's storage, or uninstall the extension. The saved list is not uploaded or synced. Clicking a saved entry sends its dictionary form to Verbformen or opens its dictionary entry to perform a new lookup.
+
 The current extension has no analytics, advertising, account system, or developer-operated lookup server. Only select or type text you are comfortable sending to the dictionary and, when used, the speech service.
 
 ## Permissions explained
@@ -76,7 +88,7 @@ The current extension has no analytics, advertising, account system, or develope
 | Permission | Why Currywurst needs it |
 | --- | --- |
 | Context menus | Adds **Look up with Currywurst** to the right-click menu. |
-| Local storage | Remembers your last lookup and direction. |
+| Local storage | Remembers your last lookup and direction, and keeps your saved words. |
 | Active tab | Gives temporary access to the page you invoke the extension on, so it can read the selection's language label. |
 | Scripting | Runs that small language-label check after your right-click lookup. |
 | Access to `https://www.verbformen.com/*` | Retrieves dictionary entries, search results, and pronunciation recordings. |
