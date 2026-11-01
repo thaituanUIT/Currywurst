@@ -2,6 +2,22 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## 1.2.1
+
+### Fixed
+
+- Recover nouns such as **Praktikantin** when query searches fail by checking the exact noun page before removing endings, including for lowercase input.
+- Recover feminine plurals ending in **-innen**, such as **Lehrerinnen → Lehrerin**, only when the source verifies the selected form.
+- Keep noun recovery within the existing six-request limit and reject unrelated dictionary results.
+
+### Added
+
+- Automated GitHub releases on version tags, with tests, manifest-version validation, changelog notes, a downloadable extension ZIP, and a SHA-256 checksum.
+
+### Changed
+
+- Updated installation and update instructions to use GitHub Releases and explain release notifications and manual extension updates.
+
 ## 1.2.0 — Stable Release
 
 ### Added

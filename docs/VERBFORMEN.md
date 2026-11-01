@@ -1,6 +1,6 @@
 # Verbformen lookup coverage
 
-Research and implementation notes for the public Verbformen website, reviewed on 2026-10-31. These are website routes, not a documented dictionary API.
+Research and implementation notes for the public Verbformen website, reviewed on 2026-11-01. These are website routes, not a documented dictionary API.
 
 ## Word types and routes
 
@@ -27,7 +27,7 @@ Some number words are presented as adjectives or nouns. No separate numeral or i
 1. Request the selected word using the general lookup with English translations (`l=11`).
 2. Accept a matching dictionary entry or a matching search card. A redirect by itself is not proof that the selected word matches.
 3. If necessary, try the noun-declension search for a capitalized selection, or conjugation search otherwise, followed by general search for the same word.
-4. Try at most two plausible noun singulars for an inflected noun, such as `Vokabeln → Vokabel`. Accept a candidate only if the source lists the original selection in its forms. For a single-word imperative stem, also try at most two related infinitive spellings within the shared request limit. Each result must still match the **original selection**, never just the guessed lemma.
+4. Try the exact noun spelling with its initial letter capitalized before removing endings. The published [Praktikantin entry](https://www.verbformen.com/declension/nouns/Praktikantin.htm) is an example of a dedicated noun page that this fallback can reach even when query routes do not resolve it. Use the dedicated page for plain Latin spellings; use noun search for spellings containing Unicode letters rather than guessing the site's custom slugs. Then try at most two plausible noun singulars, such as `Vokabeln → Vokabel` or `Lehrerinnen → Lehrerin`. Accept a candidate only if its lemma or source forms verify the original selection. For a single-word imperative stem, also try at most two related infinitive spellings within the shared request limit. Each result must still match the **original selection**, never just the guessed lemma.
 5. If a response is a partial tense/voice page, request its complete dictionary entry when available.
 
 German resolution shares a cache within the lookup and makes at most six distinct dictionary requests. English search and automatic direction fallback can make additional requests. This is a bounded lookup, not bulk crawling.

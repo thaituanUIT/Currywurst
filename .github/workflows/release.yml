@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Check JavaScript syntax and run tests
+        run: |
+          set -euo pipefail
+          for file in background.js parser.js lookup.js popup.js scripts/package-release.mjs; do
+            node --check "$file"
+          done
+          for file in tests/*.test.cjs; do
+            node "$file"
+          done
+
+      - name: Prepare release files
+        id: package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/package-release.mjs "$RELEASE_TAG"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TITLE: ${{ steps.package.outputs.title }}
+          RELEASE_ARCHIVE: ${{ steps.package.outputs.archive }}
+          RELEASE_CHECKSUM: ${{ steps.package.outputs.checksum }}
+          RELEASE_NOTES: ${{ steps.package.outputs.notes }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            "$RELEASE_ARCHIVE" "$RELEASE_CHECKSUM" \
+            --verify-tag \
+            --title "$RELEASE_TITLE" \
+            --notes-file "$RELEASE_NOTES"

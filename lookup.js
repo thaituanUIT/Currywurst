@@ -48,7 +48,12 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     const found = await inspect(`https://www.verbformen.com/${path}?w=${encodeURIComponent(word)}&l=11`);
     if (found) return found;
   }
-  for (const candidate of germanNounCandidates(word)) {
+  // Query routes can miss a noun even when its dedicated page exists. Try
+  // the unchanged noun before stripping endings that may be part of its stem.
+  const nounCandidates = /^[\p{L}-]{3,60}$/u.test(word)
+    ? [word.normalize("NFC").replace(/^./u, (letter) => letter.toLocaleUpperCase("de-DE")), ...germanNounCandidates(word)]
+    : [];
+  for (const candidate of new Set(nounCandidates)) {
     const url = /^[A-Za-z-]+$/.test(candidate)
       ? `https://www.verbformen.com/declension/nouns/${encodeURIComponent(candidate)}.htm`
       : `https://www.verbformen.com/declension/nouns/?w=${encodeURIComponent(candidate)}&l=11`;
@@ -69,7 +74,8 @@ function germanNounCandidates(word) {
   const capitalize = (text) => text[0].toLocaleUpperCase("de-DE") + text.slice(1);
   const withoutUmlaut = (text) => text.replace(/[äöüÄÖÜ]/g, (letter) => ({ ä: "a", ö: "o", ü: "u", Ä: "A", Ö: "O", Ü: "U" })[letter]);
   let stems = [];
-  if (/ern$/i.test(value)) stems = [withoutUmlaut(value.slice(0, -1)), withoutUmlaut(value.slice(0, -3))];
+  if (/innen$/i.test(value)) stems = [value.slice(0, -3)];
+  else if (/ern$/i.test(value)) stems = [withoutUmlaut(value.slice(0, -1)), withoutUmlaut(value.slice(0, -3))];
   else if (/n$/i.test(value)) stems = [value.slice(0, -1), value.replace(/en$/i, "")];
   else if (/er$/i.test(value) && !/ier$/i.test(value)) stems = [withoutUmlaut(value.slice(0, -2)), value.slice(0, -2)];
   else if (/es$/i.test(value)) stems = [value.slice(0, -2), value.slice(0, -1)];

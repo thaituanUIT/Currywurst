@@ -39,11 +39,12 @@ test('a failed stem search recovers the infinitive but validates against the sel
   const result = await h.context.lookupGermanEntry('buchstabier', h.load, h.signal);
   assert.equal(result.data.lemma, 'buchstabieren');
   assert.equal(result.data.word, 'buchstabier');
-  assert.equal(h.calls.length, 4);
+  assert.equal(h.calls.length, 5);
   assert.equal(h.calls[1].pathname, '/conjugation/');
   assert.equal(h.calls[2].pathname, '/search/');
-  assert.equal(h.calls[3].searchParams.get('w'), 'buchstabieren');
-  assert.ok(h.calls.every(url => url.searchParams.get('l') === '11'));
+  assert.equal(h.calls[3].pathname, '/declension/nouns/Buchstabier.htm');
+  assert.equal(h.calls[4].searchParams.get('w'), 'buchstabieren');
+  assert.ok(h.calls.filter(url => url.search).every(url => url.searchParams.get('l') === '11'));
 });
 
 test('a partial tense or voice route opens the complete entry', async () => {
@@ -127,8 +128,9 @@ test('Vokabeln recovers Vokabel when plural query routes return no matching entr
     assert.equal(result.data.lemma, 'Vokabel');
     assert.equal(result.data.word, query);
     assert.equal(result.data.variants.length, 2);
-    assert.equal(h.calls.length, 4);
-    assert.equal(h.calls[3].pathname, '/declension/nouns/Vokabel.htm');
+    assert.equal(h.calls.length, 5);
+    assert.equal(h.calls[3].pathname, '/declension/nouns/Vokabeln.htm');
+    assert.equal(h.calls[4].pathname, '/declension/nouns/Vokabel.htm');
   }
 });
 
@@ -136,5 +138,37 @@ test('noun recovery rejects guessed singulars that do not list the selected plur
   const h = harness(url => url.pathname === '/declension/nouns/Vokabel.htm' ? { html: { entry: { title: 'German noun Vokabel', lemma: 'Vokabel', meaning: 'word', headwordForms: ['Vokabels','Vokabel'], inflectionTables: [] } } } : {});
   const result = await h.context.lookupGermanEntry('Vokabeln', h.load, h.signal);
   assert.equal(result, null);
+  assert.ok(h.calls.length <= 6);
+});
+
+test('exact noun pages recover singulars before trying suffix guesses', async () => {
+  for (const lemma of ['Praktikantin', 'Studentin', 'Garten', 'Wagen', 'Mensch', 'Computer']) {
+    for (const query of [lemma, lemma.toLocaleLowerCase('de-DE')]) {
+      const noun = { title: `Declension of German noun ${lemma} with plural and article`, lemma, partOfSpeech: 'noun', meaning: 'example', inflectionTables: [] };
+      const h = harness(url => url.pathname === `/declension/nouns/${lemma}.htm` ? { html: { entry: noun } } : {});
+      const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+      assert.equal(result?.data.lemma, lemma, query);
+      assert.equal(result.data.word, query);
+      assert.equal(h.calls.length, 4);
+    }
+  }
+});
+
+test('feminine plurals in -innen recover -in with source verification', async () => {
+  for (const [query, lemma] of [['Praktikantinnen', 'Praktikantin'], ['Lehrerinnen', 'Lehrerin'], ['studentinnen', 'Studentin']]) {
+    const noun = { title: `German noun ${lemma}`, lemma, partOfSpeech: 'noun', meaning: 'example', headwordForms: [lemma, query], inflectionTables: [] };
+    const h = harness(url => url.pathname === `/declension/nouns/${lemma}.htm` ? { html: { entry: noun } } : {});
+    const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+    assert.equal(result?.data.lemma, lemma, query);
+    assert.equal(result.data.word, query);
+    assert.ok(h.calls.length <= 6);
+    const invalid = harness(url => url.pathname === `/declension/nouns/${lemma}.htm` ? { html: { entry: { ...noun, headwordForms: [lemma] } } } : {});
+    assert.equal(await invalid.context.lookupGermanEntry(query, invalid.load, invalid.signal), null);
+  }
+});
+
+test('exact noun fallback rejects unrelated redirects and respects request limits', async () => {
+  const h = harness(() => ({ html: { entry: { title: 'German noun Praktikant', lemma: 'Praktikant', meaning: 'intern', inflectionTables: [] } } }));
+  assert.equal(await h.context.lookupGermanEntry('Praktikantin', h.load, h.signal), null);
   assert.ok(h.calls.length <= 6);
 });

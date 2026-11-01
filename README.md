@@ -4,30 +4,34 @@ Look up German and English words while you read in Chrome or Microsoft Edge. Cur
 
 See [CHANGELOG.md](CHANGELOG.md) for major updates, new features, and fixes.
 
-See [lookup coverage notes](docs/VERBFORMEN.md) for supported word types, form matching, and known limits.
+See [lookup coverage notes](https://github.com/thaituanUIT/Currywurst/blob/main/docs/VERBFORMEN.md) for supported word types, form matching, and known limits.
 
 ## Install the extension
 
-This version is installed from a folder on your computer. Keep the folder where it is; the browser needs it to stay there.
+Download the **Currywurst ZIP** under **Assets** on the [latest release page](https://github.com/thaituanUIT/Currywurst/releases/latest) and extract it. If the first release is not available yet, use **Code → Download ZIP** on this repository.
+
+Keep the extracted folder in a permanent location; your browser loads the extension from it.
 
 1. Open Chrome and go to `chrome://extensions`, or open Edge and go to `edge://extensions`.
 2. Turn on **Developer mode** using the switch on the page.
 3. Click **Load unpacked**.
-4. Choose the Currywurst folder you downloaded or were given.
+4. Choose the extracted folder containing `manifest.json`.
 5. If you do not see the extension icon, open the browser’s Extensions menu (the puzzle-piece icon) and pin **Currywurst**.
 
 ## Update the extension
 
-**This folder-installed version does not update automatically.** Until Currywurst is available in a browser extension store, check this repository for new versions.
+New versions and their release notes appear on [GitHub Releases](https://github.com/thaituanUIT/Currywurst/releases/latest). **You need to update your installed copy manually.**
 
-1. Download the latest version and extract it.
-2. Replace the files in your existing Currywurst installation folder with the new files, keeping the folder in the same location.
+1. Download the latest **Currywurst ZIP** under **Assets** and extract it.
+2. Copy its contents into your existing Currywurst folder, replacing the old files. Keep the folder in the same location.
 3. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
 4. Click **Reload** on the Currywurst card, then reopen the popup.
 
-If you installed from a Git checkout, pull the latest changes instead of downloading and replacing files, then reload the extension.
+For notifications, sign in to GitHub and choose **Watch → Custom → Releases** on this repository. Notifications let you know when a version is published; follow the steps above to install it.
 
-Once a store version is published, its installation link will be added here. To receive automatic updates, install that store version; your current folder installation will not switch to it automatically.
+Automatic extension updates will be available through the future Chrome Web Store or Microsoft Edge Add-ons version. Its installation link will be added here when available. You will need to install that store version to receive automatic updates.
+
+If you installed with Git, pull the latest changes and reload the extension. Maintainers can follow [Publishing a GitHub release](https://github.com/thaituanUIT/Currywurst/blob/main/docs/RELEASING.md) for the automated release process.
 
 ## Look up a word
 
