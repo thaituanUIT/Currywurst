@@ -86,7 +86,7 @@ button:active { transform: translateY(1px); }
 .saved-word > span:first-child { display: block; color: var(--accent); font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
 .saved-meaning { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .saved-word:hover > span:first-child { text-decoration: underline; text-underline-offset: 3px; }
-.delete-word { flex: 0 0 30px; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
+.delete-word { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
 .delete-word:not(:disabled):hover { background: var(--peach); color: var(--accent); }
 .saved-feedback { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
 .saved-feedback:has(#saved-status:empty):has(#undo-delete[hidden]) { display: none; }
