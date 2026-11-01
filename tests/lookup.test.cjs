@@ -87,7 +87,7 @@ test('mode switch clears the old word and waits for a new explicit search', asyn
   h.elements['#word'].value = 'small';
   h.elements['#mode-toggle'].listeners.click();
   assert.equal(h.requests[0].options.signal.aborted, true);
-  assert.match(h.elements['#mode-toggle'].textContent, /EN → DE/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^English to German/);
   assert.equal(h.elements['#word'].value, '');
   assert.equal(h.elements['#word'].focused, true);
   assert.equal(h.requests.length, 1);
@@ -137,7 +137,7 @@ test('browser restart restores the saved word and mode without replaying a looku
   const h = harness({ lookupMode: 'en-de', lookupWord: 'small', lookupAuto: true, lookupHint: 'en' });
   await tick();
   assert.equal(h.elements['#word'].value, 'small');
-  assert.match(h.elements['#mode-toggle'].textContent, /EN → DE/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^English to German/);
   assert.equal(h.requests.length, 0);
   assert.match(h.elements['#result'].innerHTML, /Press Look up/);
   h.elements['#search-form'].listeners.submit({ preventDefault() {} });
@@ -229,7 +229,7 @@ test('automatic English selection uses page hint and saves the detected directio
   await tick();
   h.respond(1);
   await lookup;
-  assert.match(h.elements['#mode-toggle'].textContent, /EN → DE/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^English to German/);
   assert.match(h.elements['#result'].innerHTML, /klein/);
   assert.equal(h.saved.at(-1).lookupMode, 'en-de');
   assert.ok(h.saved.every(value => !('lookupAuto' in value) && !('lookupHint' in value)));
@@ -247,7 +247,7 @@ test('German selection on an English page falls back to a German entry', async (
   assert.match(h.requests[2].url, /w=Bruder/);
   h.respond(2);
   await lookup;
-  assert.match(h.elements['#mode-toggle'].textContent, /DE → EN/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^German to English/);
   assert.match(h.elements['#result'].innerHTML, /Bruder/);
 });
 
@@ -373,7 +373,7 @@ test('saved rows return to German lookup and preserve the saved noun gender rout
   assert.equal(h.elements['#saved-view'].hidden, true);
   assert.equal(h.elements['#lookup-view'].hidden, false);
   assert.equal(h.elements['#word'].value, 'Vokabel');
-  assert.equal(h.elements['#mode-toggle'].textContent, 'DE → EN');
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^German to English/);
   assert.equal(h.requests[0].url, url);
   h.respond(0);
   await lookup;

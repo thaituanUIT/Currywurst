@@ -8,7 +8,7 @@
 </head>
 <body>
   <main>
-    <header><div class="brand-mark" aria-hidden="true"><img src="icon.svg" alt="" width="36" height="36"></div><span class="brand-name">Currywurst</span><button class="source-label" id="mode-toggle" type="button" aria-label="German to English. Click to switch to English to German" aria-pressed="false" title="Click to reverse direction">DE → EN</button></header>
+    <header><div class="brand-mark" aria-hidden="true"><img src="icon.svg" alt="" width="36" height="36"></div><span class="brand-name">Currywurst</span><button class="source-label" id="mode-toggle" type="button" aria-label="German to English. Click to switch to English to German" aria-pressed="false" title="Click to reverse direction"><span>DE</span><svg class="ui-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 8h10m-4-4 4 4-4 4"/></svg><span>EN</span></button></header>
     <nav class="view-nav" aria-label="Dictionary views"><button id="lookup-tab" type="button" aria-pressed="true">Lookup</button><button id="saved-tab" type="button" aria-pressed="false">Saved <span id="saved-count">…/100</span></button></nav>
     <section id="lookup-view">
       <label class="search-label" for="word">YOUR GERMAN WORD</label>
@@ -19,7 +19,7 @@
       <div id="saved-list" role="list" aria-label="Saved words"><p class="muted">Loading saved words…</p></div>
       <div class="saved-feedback"><p id="saved-status" class="muted" role="status"></p><button id="undo-delete" class="text-button" type="button" hidden>Undo</button></div>
     </section>
-    <footer><span lang="de">„Übung macht den Meister.“</span><a href="https://www.verbformen.com/" id="source" target="_blank" rel="noreferrer">Verbformen ↗</a></footer>
+    <footer><span lang="de">„Übung macht den Meister.“</span><a href="https://www.verbformen.com/" id="source" target="_blank" rel="noreferrer">Verbformen <svg class="ui-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12l8-8M4 4h8v8"/></svg></a></footer>
   </main>
   <script src="parser.js"></script>
   <script src="lookup.js"></script>
