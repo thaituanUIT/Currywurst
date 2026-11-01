@@ -39,11 +39,12 @@ test('a failed stem search recovers the infinitive but validates against the sel
   const result = await h.context.lookupGermanEntry('buchstabier', h.load, h.signal);
   assert.equal(result.data.lemma, 'buchstabieren');
   assert.equal(result.data.word, 'buchstabier');
-  assert.equal(h.calls.length, 5);
+  assert.equal(h.calls.length, 6);
   assert.equal(h.calls[1].pathname, '/conjugation/');
   assert.equal(h.calls[2].pathname, '/search/');
-  assert.equal(h.calls[3].pathname, '/declension/nouns/Buchstabier.htm');
-  assert.equal(h.calls[4].searchParams.get('w'), 'buchstabieren');
+  assert.equal(h.calls[3].pathname, '/declension/adjectives/buchstabi.htm');
+  assert.equal(h.calls[4].pathname, '/declension/nouns/Buchstabier.htm');
+  assert.equal(h.calls[5].searchParams.get('w'), 'buchstabieren');
   assert.ok(h.calls.filter(url => url.search).every(url => url.searchParams.get('l') === '11'));
 });
 
@@ -149,7 +150,9 @@ test('exact noun pages recover singulars before trying suffix guesses', async ()
       const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
       assert.equal(result?.data.lemma, lemma, query);
       assert.equal(result.data.word, query);
-      assert.equal(h.calls.length, 4);
+      const adjectiveFirst = query === lemma.toLocaleLowerCase('de-DE') && h.context.germanAdjectiveCandidates(query).length > 0;
+      assert.equal(h.calls.length, adjectiveFirst ? 5 : 4);
+      assert.equal(h.calls.at(-1).pathname, `/declension/nouns/${lemma}.htm`);
     }
   }
 });
@@ -171,4 +174,55 @@ test('exact noun fallback rejects unrelated redirects and respects request limit
   const h = harness(() => ({ html: { entry: { title: 'German noun Praktikant', lemma: 'Praktikant', meaning: 'intern', inflectionTables: [] } } }));
   assert.equal(await h.context.lookupGermanEntry('Praktikantin', h.load, h.signal), null);
   assert.ok(h.calls.length <= 6);
+});
+
+const nationwide = {
+  title: 'Declension and comparison German adjective landesweit',
+  lemma: 'landesweit', partOfSpeech: 'adjective', meaning: 'nationwide, countrywide, statewide',
+  grammarTags: ['positive', 'not comparable'],
+  inflectionTables: [{ title: 'Masculine', group: 'Strong declension', rows: [
+    ['Nom.', 'landesweiter'], ['Gen.', 'landesweiten'], ['Dat.', 'landesweitem'], ['Acc.', 'landesweiten'],
+  ] }, { title: 'Neutral', group: 'Strong declension', rows: [
+    ['Nom.', 'landesweites'], ['Gen.', 'landesweiten'], ['Dat.', 'landesweitem'], ['Acc.', 'landesweites'],
+  ] }, { title: 'Feminine', group: 'Strong declension', rows: [
+    ['Nom.', 'landesweite'], ['Gen.', 'landesweiter'], ['Dat.', 'landesweiter'], ['Acc.', 'landesweite'],
+  ] }],
+};
+
+test('landesweiten and other adjective endings recover their source-verified dictionary form', async () => {
+  for (const query of ['landesweiten', 'landesweite', 'landesweitem', 'landesweiter', 'landesweites', 'Landesweiten']) {
+    const h = harness(url => url.pathname === '/declension/adjectives/landesweit.htm' ? { html: { entry: nationwide } } : {});
+    const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+    assert.equal(result?.data.lemma, 'landesweit', query);
+    assert.equal(result.data.word, query);
+    assert.equal(result.data.meaning, nationwide.meaning);
+    assert.equal(result.data.inflectionTables.length, 3);
+    assert.ok(h.calls.length <= 8);
+  }
+});
+
+test('adjective guesses cannot be accepted without the original form in the source', async () => {
+  const h = harness(url => url.pathname.startsWith('/declension/adjectives/') ? { html: { entry: {
+    ...nationwide, inflectionTables: [{ title: 'Masculine', rows: [['Nom.', 'landesweiter']] }],
+  } } } : {});
+  assert.equal(await h.context.lookupGermanEntry('landesweiten', h.load, h.signal), null);
+  assert.ok(h.calls.length <= 8);
+});
+
+test('adjective recovery preserves final e, contracted stems, and comparative bases', async () => {
+  for (const [query, lemma] of [['müden', 'müde'], ['leises', 'leise'], ['dunklen', 'dunkel'], ['teuren', 'teuer'], ['kleineren', 'klein']]) {
+    const data = { title: `German adjective ${lemma}`, lemma, partOfSpeech: 'adjective', meaning: 'example', inflectionTables: [{ title: 'Dative', rows: [['Dat.', query]] }] };
+    const h = harness(url => url.pathname === `/declension/adjectives/${lemma}.htm` || url.pathname === '/declension/adjectives/' && url.searchParams.get('w') === lemma ? { html: { entry: data } } : {});
+    const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+    assert.equal(result?.data.lemma, lemma, query);
+    assert.equal(result.data.word, query);
+    assert.ok(h.calls.length <= 8);
+  }
+});
+
+test('lowercase noun plurals remain recoverable alongside adjective guesses', async () => {
+  const noun = { title: 'German noun Student', lemma: 'Student', partOfSpeech: 'noun', meaning: 'student', headwordForms: ['Student', 'Studenten'], inflectionTables: [] };
+  const h = harness(url => url.pathname === '/declension/nouns/Student.htm' ? { html: { entry: noun } } : {});
+  assert.equal((await h.context.lookupGermanEntry('studenten', h.load, h.signal))?.data.lemma, 'Student');
+  assert.ok(h.calls.length <= 8);
 });

@@ -10,6 +10,10 @@ Major features and fixes in Currywurst. Version numbers follow the extension man
 - Browse saved words offline, open a saved word in German-to-English lookup, and delete entries with a five-second Undo option.
 - Keep the list in local browser storage across restarts, with serialized writes to enforce the limit across popup windows.
 
+### Fixed
+
+- Recover declined adjectives such as **landesweiten → landesweit** through adjective entries, verifying the selected form against source tables. Include final-e, contracted-stem, and comparative candidates within a maximum of two additional requests.
+
 ## 1.2.1
 
 ### Fixed
