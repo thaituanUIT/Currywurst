@@ -44,6 +44,8 @@ If you installed with Git, pull the latest changes and reload the extension. Mai
 
 You can also open the extension from the Extensions menu and type a word into the search box. The **DE → EN** button shows the current direction: German to English. Click it once to switch to **EN → DE**, and click again to switch back. Switching direction clears the previous word and results, ready for a new search. Currywurst remembers your last mode. Each mode has its own soft cream, mustard, and paprika colors.
 
+When you reopen the popup, your last word stays in the search box. Click **Look up** to search it again. Opening the popup alone does not send another dictionary request, including after a browser restart.
+
 Some words, such as “Gift” or “Bank”, exist in both languages. If the automatic choice is wrong, click the language button to reverse the direction and look up the word again.
 
 Some nouns have more than one article. When article buttons appear, such as **die Vokabel** and **das Vokabel**, click one to see its meaning, usage notes, and word forms.
@@ -65,7 +67,7 @@ This disclosure describes the current version of Currywurst in this repository.
 
 **Pronunciation:** Playing a dictionary recording requests an audio file from Verbformen. If a recording is unavailable, Currywurst asks the browser to speak the word. Depending on the voice and your browser or operating system, speech may be generated on your device or by a third-party speech service. That service may receive the word being spoken.
 
-**What stays on your device:** The last lookup text, selected lookup direction, and language-detection settings are saved in the extension's local browser storage. This is not a complete lookup history and is not synced through Currywurst. Saved values remain until replaced or the browser clears the extension's data. Reopening the popup can repeat the last lookup and send that text to Verbformen again.
+**What stays on your device:** The last lookup text and selected lookup direction are saved in the extension's local browser storage. This is not a complete lookup history and is not synced through Currywurst. Saved values remain until replaced or the browser clears the extension's data. A right-click lookup temporarily stores the selected word and its language hint in browser-session storage, then consumes that request when the popup opens. Reopening the popup restores the search text without sending it to Verbformen; click **Look up** or invoke a fresh right-click lookup to search again.
 
 The current extension has no analytics, advertising, account system, or developer-operated lookup server. Only select or type text you are comfortable sending to the dictionary and, when used, the speech service.
 

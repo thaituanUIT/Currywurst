@@ -30,7 +30,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (language === "en" || language === "de") hint = language;
     } catch { /* Restricted pages can still use dictionary-based detection. */ }
   }
-  await chrome.storage.local.set({ lookupWord: word, lookupAuto: true, lookupHint: hint });
+  await chrome.storage.local.set({ lookupWord: word });
+  // Unlike persistent input history, this one-use request expires on restart.
+  await chrome.storage.session.set({ pendingLookup: { word, hint, createdAt: Date.now() } });
   try {
     await chrome.action.openPopup();
   } catch {

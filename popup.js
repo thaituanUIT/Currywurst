@@ -11,13 +11,27 @@ let inputEdited = false;
 let englishForm;
 
 input.addEventListener("input", () => { inputEdited = true; });
-chrome.storage.local.get(["lookupWord", "lookupMode", "lookupAuto", "lookupHint"]).then(({ lookupWord, lookupMode, lookupAuto, lookupHint }) => {
+// A saved word is input history, not a request to contact the dictionary.
+// Only a fresh context-menu action may start a lookup when the popup opens.
+Promise.all([
+  chrome.storage.local.get(["lookupWord", "lookupMode"]).catch(() => ({})),
+  chrome.storage.session.get("pendingLookup").catch(() => ({})),
+]).then(async ([{ lookupWord, lookupMode }, { pendingLookup }]) => {
+  const consumed = pendingLookup
+    ? await chrome.storage.session.remove("pendingLookup").then(() => true, () => false)
+    : false;
   if (inputEdited || lookupSequence !== 0) return;
   setMode(lookupMode === "en-de" ? "en-de" : "de-en");
-  if (lookupWord) {
-    input.value = lookupWord;
-    runLookup(lookupWord, null, { automatic: lookupAuto === true, hint: lookupHint });
-  } else renderEmptyState();
+  const age = Date.now() - pendingLookup?.createdAt;
+  const fresh = consumed && typeof pendingLookup.word === "string" && pendingLookup.word.trim()
+    && Number.isFinite(pendingLookup.createdAt) && age >= 0 && age < 60000;
+  if (fresh) {
+    input.value = pendingLookup.word;
+    runLookup(pendingLookup.word, null, { automatic: true, hint: pendingLookup.hint });
+  } else {
+    input.value = typeof lookupWord === "string" ? lookupWord : "";
+    renderEmptyState();
+  }
 });
 
 modeToggle.addEventListener("click", () => {
@@ -25,7 +39,7 @@ modeToggle.addEventListener("click", () => {
   cancelLookup();
   input.value = "";
   setMode(mode === "de-en" ? "en-de" : "de-en");
-  chrome.storage.local.set({ lookupWord: "", lookupMode: mode, lookupAuto: false, lookupHint: "" }).catch(() => {});
+  chrome.storage.local.set({ lookupWord: "", lookupMode: mode }).catch(() => {});
   renderEmptyState();
   input.focus();
 });
@@ -48,7 +62,10 @@ function setMode(nextMode) {
 
 function renderEmptyState() {
   result.scrollTop = 0;
-  result.innerHTML = '<div class="empty-state"><p class="hint">Type a word, or select text and right-click to look it up.</p></div>';
+  const message = input.value.trim()
+    ? "Press Look up to search this word again."
+    : "Type a word, or select text and right-click to look it up.";
+  result.innerHTML = `<div class="empty-state"><p class="hint">${message}</p></div>`;
 }
 
 function stopPronunciation() {
@@ -122,8 +139,8 @@ async function runLookup(word, detail = null, options = {}) {
   const requestedMode = mode;
   const timeout = setTimeout(() => controller.abort(), options.automatic ? 25000 : 15000);
   if (!detail) chrome.storage.local.set(options.automatic
-    ? { lookupWord: word, lookupAuto: true, lookupHint: options.hint || "" }
-    : { lookupWord: word, lookupMode: mode, lookupAuto: false }).catch(() => {});
+    ? { lookupWord: word }
+    : { lookupWord: word, lookupMode: mode }).catch(() => {});
   sourceLink.href = detail?.entry.url || `https://www.verbformen.com/${mode === "en-de" ? "en-de/" : ""}?w=${encodeURIComponent(word)}`;
   const message = loadingMessage(word, detail, options, requestedMode);
   result.innerHTML = `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
@@ -137,7 +154,7 @@ async function runLookup(word, detail = null, options = {}) {
         return;
       }
       setMode(match.mode);
-      chrome.storage.local.set({ lookupMode: match.mode, lookupAuto: false }).catch(() => {});
+      chrome.storage.local.set({ lookupMode: match.mode }).catch(() => {});
       if (match.state) renderEnglishResults(match.state);
       else {
         sourceLink.href = match.sourceUrl;
