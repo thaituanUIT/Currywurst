@@ -9,6 +9,8 @@ let activeController;
 let activeAudio;
 let inputEdited = false;
 let englishForm;
+let activeMeaningController;
+const findEnglishMeaning = createEnglishMeaningFallback({ storage: chrome.storage.session });
 let view = "lookup";
 let currentEntry;
 let savedWords = [];
@@ -103,7 +105,8 @@ async function saveCurrentWord() {
   saveError = "";
   updateSaveButton();
   try {
-    await savedWordsRequest("add", { entry: savedWordRecord({ ...entry, sourceUrl: entry.sourceUrl || sourceLink.href }) });
+    const sourceUrl = entry.comparisonVariants?.find(variant => variant.degree === "positive")?.url || entry.sourceUrl || sourceLink.href;
+    await savedWordsRequest("add", { entry: savedWordRecord({ ...entry, sourceUrl }) });
   } catch (error) {
     if (entry === currentEntry) saveError = error.message;
   } finally {
@@ -119,7 +122,7 @@ function renderSavedWords() {
     : !words.length ? '<p class="hint">No saved words yet. Save a word after looking it up.</p>'
     : words.map((word, index) => {
       const label = word.article ? `${word.article} ${word.lemma}` : word.lemma;
-      return `<article class="saved-row" role="listitem"><button class="saved-word" data-saved-word="${index}"><span lang="de">${escapeHtml(label)}</span><span class="saved-meaning">${escapeHtml(word.meaning)}</span></button><button class="delete-word" data-delete-word="${index}" aria-label="Delete ${escapeHtml(label)}" title="Delete word" ${savedBusy ? "disabled" : ""}>${uiIcon("close")}</button></article>`;
+      return `<article class="saved-row" role="listitem"><div class="saved-word-block"><button class="saved-word" data-saved-word="${index}"><span lang="de">${escapeHtml(label)}</span><span class="saved-meaning">${escapeHtml(word.meaning)}</span></button>${meaningAttribution(word.meaningSource)}</div><button class="delete-word" data-delete-word="${index}" aria-label="Delete ${escapeHtml(label)}" title="Delete word" ${savedBusy ? "disabled" : ""}>${uiIcon("close")}</button></article>`;
     }).join("");
   savedList.querySelectorAll("[data-saved-word]").forEach(button => button.addEventListener("click", () => openSavedWord(words[Number(button.dataset.savedWord)])));
   savedList.querySelectorAll("[data-delete-word]").forEach(button => button.addEventListener("click", () => deleteSavedWord(words[Number(button.dataset.deleteWord)].id)));
@@ -229,6 +232,7 @@ function setMode(nextMode) {
 }
 
 function renderEmptyState() {
+  stopMeaningLookup();
   currentEntry = undefined;
   result.scrollTop = 0;
   const message = input.value.trim()
@@ -246,7 +250,34 @@ function stopPronunciation() {
 function cancelLookup() {
   lookupSequence++;
   activeController?.abort();
+  stopMeaningLookup();
   stopPronunciation();
+}
+
+function stopMeaningLookup() {
+  activeMeaningController?.abort();
+  activeMeaningController = undefined;
+}
+
+function meaningAttribution(value) {
+  const source = safeMeaningSource(value);
+  if (!source) return "";
+  return `<p class="meaning-source">Meaning from <a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Wiktionary</a> · <a href="${escapeHtml(source.licenseUrl)}" target="_blank" rel="noreferrer">CC BY-SA 4.0</a></p>`;
+}
+
+function loadMissingMeaning(data, backState, message) {
+  const controller = new AbortController();
+  activeMeaningController = controller;
+  const sequence = lookupSequence;
+  findEnglishMeaning(data, controller.signal).then(translation => {
+    if (controller.signal.aborted || sequence !== lookupSequence || currentEntry !== data || view !== "lookup") return;
+    const scroll = result.scrollTop;
+    renderGermanEntry({ ...data, ...(translation || {}), meaningState: translation ? "ready" : "unavailable" }, backState, message);
+    result.scrollTop = scroll;
+  }).catch(() => {
+    if (controller.signal.aborted || sequence !== lookupSequence || currentEntry !== data || view !== "lookup") return;
+    renderGermanEntry({ ...data, meaningState: "unavailable" }, backState, message);
+  });
 }
 
 async function fetchPage(url, controller, options = {}) {
@@ -342,20 +373,25 @@ async function runLookup(word, detail = null, options = {}) {
         ? await fetchPage(fullDictionaryEntryUrl(detail.entry.url, detail.entry.url) || detail.entry.url, controller).then((page) => ({ data: parseVerbformen(page.html, word, page.sourceUrl), sourceUrl: page.sourceUrl }))
         : await lookupGermanEntry(word, (url) => fetchPage(url, controller), controller.signal);
       if (sequence !== lookupSequence) return;
-      if (detail?.previousData && found && found.data.lemma.toLowerCase() !== detail.entry.lemma.toLowerCase()) throw new Error("This noun variant could not be found.");
+      if (detail?.previousData && !detail.variantKind && found && found.data.lemma.toLowerCase() !== detail.entry.lemma.toLowerCase()) throw new Error("This noun variant could not be found.");
+      if (detail?.variantKind && found && !isGermanEntryMatch(found.data, word)) throw new Error("This entry could not be verified.");
       if (detail?.savedEntry && found && !isGermanEntryMatch(found.data, word)) throw new Error("This saved word could not be found.");
       if (!found) {
         result.innerHTML = '<p class="muted">No matching German entry found. Try another spelling or switch to EN → DE.</p>';
         return;
       }
       sourceLink.href = found.sourceUrl;
+      if (detail?.variantKind && detail.previousData) {
+        found.data.entryChoices = detail.previousData.entryChoices;
+        if (detail.variantKind === "comparison" && !found.data.comparisonVariants?.length) found.data.comparisonVariants = detail.previousData.comparisonVariants;
+      }
       renderGermanEntry(found.data, detail?.backState);
     }
   } catch (error) {
     if (sequence !== lookupSequence) return;
     if (detail?.previousData) {
       sourceLink.href = detail.previousData.sourceUrl;
-      renderGermanEntry(detail.previousData, detail.backState, "Could not load this noun variant. Please try again.");
+      renderGermanEntry(detail.previousData, detail.backState, detail.variantKind ? "Could not load this entry. Please try again." : "Could not load this noun variant. Please try again.");
       return;
     }
     result.innerHTML = `${detail?.backState ? backButton() : ""}<p class="error">${escapeHtml(controller.signal.aborted ? "Lookup timed out. Please try again." : error.message)}</p><p class="muted">You can also open the dictionary using the source link below.</p><button id="retry">Retry</button>`;
@@ -367,6 +403,8 @@ async function runLookup(word, detail = null, options = {}) {
 }
 
 function loadingMessage(word, detail, options, direction) {
+  if (detail?.variantKind === "comparison") return `Loading ${detail.entry.degree} forms…`;
+  if (detail?.variantKind === "entry") return `Loading ${detail.entry.partOfSpeech || "dictionary"} entry…`;
   if (detail?.previousData) return `Loading ${detail.entry.label || detail.entry.lemma}…`;
   if (detail) return `Loading grammar for ${detail.entry.lemma}…`;
   if (options.automatic) return "Checking language and meaning…";
@@ -394,6 +432,7 @@ function uiIcon(name) {
 }
 
 function renderEnglishResults(state) {
+  stopMeaningLookup();
   currentEntry = undefined;
   sourceLink.href = state.sourceUrl;
   result.scrollTop = 0;
@@ -411,6 +450,7 @@ function renderEnglishResults(state) {
 }
 
 function renderGermanEntry(data, backState, message = "") {
+  stopMeaningLookup();
   currentEntry = data;
   saveError = "";
   const saveButton = data.lemma && data.meaning?.trim() ? '<button id="save-word" class="save-word" type="button">Save</button>' : "";
@@ -424,7 +464,22 @@ function renderGermanEntry(data, backState, message = "") {
   const selectedVariant = selectedByUrl >= 0 ? selectedByUrl : variantList.findIndex((variant) => variant.article === data.article);
   const variants = variantList.length > 1 ? `<div class="noun-variants" role="group" aria-label="Noun articles">${variantList.map((variant, index) => `<button type="button" class="noun-variant" data-noun-variant="${index}" aria-pressed="${index === selectedVariant}">${escapeHtml(variant.label)}</button>`).join("")}</div>` : "";
   const notes = (data.usageNotes || []).map((note) => `<p class="usage-note">${escapeHtml(note)}</p>`).join("");
-  result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${variants}<p class="gloss">${escapeHtml(data.meaning || "Meaning not found")}</p>${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
+  const degrees = data.comparisonVariants || [];
+  const selectedDegree = degrees.findIndex(entry => new URL(entry.url).pathname === sourcePath);
+  const comparison = degrees.length > 1 ? `<div class="noun-variants" role="group" aria-label="Adjective degree">${degrees.map((entry, index) => `<button type="button" class="noun-variant" data-degree="${index}" aria-pressed="${index === (selectedDegree >= 0 ? selectedDegree : 0)}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
+  const choices = data.entryChoices || [];
+  const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 ? `<div class="noun-variants" role="group" aria-label="Dictionary entries">${choices.map((entry, index) => `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${new URL(entry.url).pathname === sourcePath}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
+  const meaning = data.meaning || (data.meaningState === "unavailable" ? "English meaning unavailable." : "Finding English meaning…");
+  result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss">${escapeHtml(meaning)}</p>${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
+  for (const [selector, entries, variantKind] of [["[data-degree]", degrees, "comparison"], ["[data-entry-choice]", choices, "entry"]]) {
+    result.querySelectorAll(selector).forEach(button => button.addEventListener("click", () => {
+      if (button.getAttribute("aria-pressed") === "true") return;
+      const index = Number(variantKind === "comparison" ? button.dataset.degree : button.dataset.entryChoice);
+      const entry = entries[index];
+      if (!dictionaryEntryUrl(entry.url, data.sourceUrl)) return;
+      runLookup(data.word, { entry, previousData: data, backState, variantKind });
+    }));
+  }
   result.querySelectorAll("[data-noun-variant]").forEach((button) => button.addEventListener("click", () => {
     if (button.getAttribute("aria-pressed") === "true") return;
     const variant = data.variants[Number(button.dataset.nounVariant)];
@@ -437,6 +492,7 @@ function renderGermanEntry(data, backState, message = "") {
     result.querySelector("#save-word").addEventListener("click", saveCurrentWord);
     updateSaveButton();
   }
+  if (!data.meaning && !data.meaningState) loadMissingMeaning(data, backState, message);
 }
 
 function renderInflections(tables) {

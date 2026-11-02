@@ -115,3 +115,27 @@ test('explicit noun introduction verifies a plural when the compact header is un
   assert.equal(parser.isGermanEntryMatch(entry, 'Vokabeln'), true);
   assert.deepEqual(plain(parser.extractStatedNounForms('An example sentence contains Vokabeln.')), []);
 });
+
+test('regular and irregular annotations do not become part of a headword', () => {
+  assert.equal(parser.extractLemma('Conjugation of German verb verwenden (regelm)', 'verwendete'), 'verwenden');
+  assert.equal(parser.cleanHeadword('verwenden <irr.>'), 'verwenden');
+});
+
+test('comparison choices are source-linked, normalized, and exclude foreign links', () => {
+  const links = [
+    ['positive ausgesprochen', '/declension/adjectives/ausgesprochen.htm'],
+    ['comparative ausgesprochen er', '/declension/adjectives/ausgesprochener.htm'],
+    ['superlative am ausgesprochen st en', '/declension/adjectives/ausgesprochensten.htm'],
+    ['positive unwanted', 'https://evil.example/declension/adjectives/unwanted.htm'],
+  ].map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  const variants = parser.extractComparisonVariants({ querySelectorAll: () => links }, 'https://www.verbformen.com/');
+  assert.deepEqual(plain(variants.map(variant => variant.form)), ['ausgesprochen', 'ausgesprochener', 'ausgesprochensten']);
+  assert.equal(parser.isGermanEntryMatch({ title: 'German adjective ausgesprochen', lemma: 'ausgesprochen', meaning: 'pronounced', comparisonVariants: variants }, 'ausgesprochener'), true);
+});
+
+test('a trusted lexical link can establish identity without an English meaning', () => {
+  const entry = { title: 'German noun Lernende', lemma: 'Lernende', meaning: '', inflectionTables: [] };
+  assert.equal(parser.isGermanEntryMatch(entry, 'Lernende'), false);
+  assert.equal(parser.isGermanEntryMatch({ ...entry, sourceUrl: 'https://www.verbformen.com/declension/nouns/Lernende.htm' }, 'Lernende'), true);
+  assert.equal(parser.isGermanEntryMatch({ ...entry, sourceUrl: 'https://evil.example/declension/nouns/Lernende.htm' }, 'Lernende'), false);
+});
