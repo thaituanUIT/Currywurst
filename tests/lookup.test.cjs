@@ -7,19 +7,34 @@ const parserContext = vm.createContext({ URL });
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 
 function makeElement(dataset = {}) {
-  return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; } };
+  return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; }, insertAdjacentHTML(position, html) { this.innerHTML += html; } };
 }
 function harness(savedState = {}, sessionState = {}) {
-  const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry'].map(id => [id, makeElement()]));
+  const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry', '#lookup-tab', '#saved-tab', '#lookup-view', '#saved-view', '#saved-count', '#saved-list', '#saved-status', '#undo-delete', '#save-word', '#save-status'].map(id => [id, makeElement()]));
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
   const entryButton = makeElement({ entry: '0' });
   const variantButton = makeElement({ nounVariant: '1' });
+  let savedWordButtons = [], deleteButtons = [];
   elements['#result'].querySelectorAll = selector => selector === '[data-entry]' ? [entryButton] : selector === '[data-noun-variant]' && elements['#result'].innerHTML.includes('data-noun-variant') ? [variantButton] : [];
+  elements['#result'].querySelector = selector => selector === '.loading'
+    ? elements['#result'].innerHTML.includes('class="loading"') ? {} : null
+    : elements['#result'].innerHTML.includes(`id="${selector.slice(1)}"`) ? elements[selector] : null;
+  elements['#saved-list'].querySelectorAll = selector => {
+    if (selector === '[data-saved-word]') {
+      savedWordButtons = [...elements['#saved-list'].innerHTML.matchAll(/data-saved-word="(\d+)"/g)].map(match => makeElement({ savedWord: match[1] }));
+      return savedWordButtons;
+    }
+    if (selector === '[data-delete-word]') {
+      deleteButtons = [...elements['#saved-list'].innerHTML.matchAll(/data-delete-word="(\d+)"/g)].map(match => makeElement({ deleteWord: match[1] }));
+      return deleteButtons;
+    }
+    return [];
+  };
   const requests = [], saved = [];
   const context = vm.createContext({
     document: { documentElement: { dataset: {} }, querySelector: id => elements[id] }, window: {},
     chrome: { storage: {
-      local: { get: async () => savedState, set: async value => saved.push(value) },
+      local: { get: async () => ({ ...savedState }), set: async value => { saved.push(value); Object.assign(savedState, value); } },
       session: {
         get: async () => ({ ...sessionState }),
         set: async value => Object.assign(sessionState, value),
@@ -35,10 +50,18 @@ function harness(savedState = {}, sessionState = {}) {
     parseGermanSearchEntries: () => [],
     parseVerbformen: (_, word) => ({ word, lemma: word, title: `Noun ${word}`, ipa: [], audio: [], inflectionTables: [], meaning: word }),
   });
+  vm.runInContext(fs.readFileSync('saved-words.js', 'utf8'), context);
+  const store = context.createSavedWordsStore(context.chrome.storage.local);
+  context.chrome.runtime = { sendMessage: async message => {
+    try {
+      const argument = message.action === 'remove' ? message.id : message.entry;
+      return { ok: true, ...await store[message.action](argument) };
+    } catch (error) { return { ok: false, error: error.message }; }
+  } };
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
   const respond = (index) => requests[index].resolve({ ok: true, text: async () => '', url: requests[index].url });
-  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState };
+  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons };
 }
 
 test('latest search wins and manual searches persist', async () => {
@@ -64,7 +87,7 @@ test('mode switch clears the old word and waits for a new explicit search', asyn
   h.elements['#word'].value = 'small';
   h.elements['#mode-toggle'].listeners.click();
   assert.equal(h.requests[0].options.signal.aborted, true);
-  assert.match(h.elements['#mode-toggle'].textContent, /EN → DE/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^English to German/);
   assert.equal(h.elements['#word'].value, '');
   assert.equal(h.elements['#word'].focused, true);
   assert.equal(h.requests.length, 1);
@@ -114,7 +137,7 @@ test('browser restart restores the saved word and mode without replaying a looku
   const h = harness({ lookupMode: 'en-de', lookupWord: 'small', lookupAuto: true, lookupHint: 'en' });
   await tick();
   assert.equal(h.elements['#word'].value, 'small');
-  assert.match(h.elements['#mode-toggle'].textContent, /EN → DE/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^English to German/);
   assert.equal(h.requests.length, 0);
   assert.match(h.elements['#result'].innerHTML, /Press Look up/);
   h.elements['#search-form'].listeners.submit({ preventDefault() {} });
@@ -172,7 +195,7 @@ test('right-click exposes one automatic lookup and keeps manual direction unchan
   const installed = [], clicked = [], menus = [], saved = [], session = [];
   let opened = 0;
   const context = vm.createContext({ chrome: {
-    runtime: { onInstalled: { addListener: fn => installed.push(fn) } },
+    runtime: { onInstalled: { addListener: fn => installed.push(fn) }, onMessage: { addListener() {} } },
     contextMenus: { removeAll: fn => fn(), create: menu => menus.push(menu), onClicked: { addListener: fn => clicked.push(fn) } },
     storage: {
       local: { set: async value => saved.push(value) },
@@ -181,6 +204,7 @@ test('right-click exposes one automatic lookup and keeps manual direction unchan
     scripting: { executeScript: async options => { assert.equal(options.target.tabId, 7); return [{ result: 'en' }]; } },
     action: { openPopup: async () => { opened++; } },
   } });
+  context.importScripts = file => vm.runInContext(fs.readFileSync(file, 'utf8'), context);
   vm.runInContext(fs.readFileSync('background.js', 'utf8'), context);
   installed[0]();
   assert.equal(menus.length, 1);
@@ -205,7 +229,7 @@ test('automatic English selection uses page hint and saves the detected directio
   await tick();
   h.respond(1);
   await lookup;
-  assert.match(h.elements['#mode-toggle'].textContent, /EN → DE/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^English to German/);
   assert.match(h.elements['#result'].innerHTML, /klein/);
   assert.equal(h.saved.at(-1).lookupMode, 'en-de');
   assert.ok(h.saved.every(value => !('lookupAuto' in value) && !('lookupHint' in value)));
@@ -223,7 +247,7 @@ test('German selection on an English page falls back to a German entry', async (
   assert.match(h.requests[2].url, /w=Bruder/);
   h.respond(2);
   await lookup;
-  assert.match(h.elements['#mode-toggle'].textContent, /DE → EN/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^German to English/);
   assert.match(h.elements['#result'].innerHTML, /Bruder/);
 });
 
@@ -307,4 +331,168 @@ test('switching a noun gender loads the chosen entry and preserves the original 
   assert.match(h.elements['#result'].innerHTML, /Southern Germany, Austria, Switzerland/);
   assert.match(h.elements['#result'].innerHTML, /data-speak="Vokabeln"/);
   assert.equal(h.saved.length, 0);
+});
+
+const germanEntry = (lemma, extra = {}) => ({ word: lemma, lemma, meaning: 'English meaning', partOfSpeech: 'noun', article: 'die', ipa: [], audio: [], inflectionTables: [], ...extra });
+
+test('save stores the lemma and English meaning once, with an offline list after reopening', async () => {
+  const state = {};
+  const h = harness(state);
+  await tick();
+  h.context.renderGermanEntry(germanEntry('machen', { word: 'machst', meaning: 'make, do', partOfSpeech: 'verb', article: '' }));
+  await h.elements['#save-word'].listeners.click();
+  assert.equal(state.savedWords.length, 1);
+  assert.equal(state.savedWords[0].lemma, 'machen');
+  assert.equal(state.savedWords[0].meaning, 'make, do');
+  assert.equal(h.elements['#save-word'].textContent, 'Saved');
+  assert.equal(h.elements['#save-word'].disabled, true);
+  await h.context.saveCurrentWord();
+  assert.equal(state.savedWords.length, 1);
+  assert.equal(h.elements['#saved-count'].textContent, '1/100');
+  const reopened = harness(state);
+  await tick();
+  reopened.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.match(reopened.elements['#saved-list'].innerHTML, /machen/);
+  assert.match(reopened.elements['#saved-list'].innerHTML, /make, do/);
+  assert.equal(reopened.requests.length, 0);
+});
+
+test('saved rows return to German lookup and preserve the saved noun gender route', async () => {
+  const h = harness();
+  await tick();
+  const url = 'https://www.verbformen.com/declension/nouns/Vokabel_neut.htm';
+  h.context.renderGermanEntry(germanEntry('Vokabel', { article: 'das', sourceUrl: url }));
+  await h.context.saveCurrentWord();
+  h.context.setMode('en-de');
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.equal(h.elements['#lookup-view'].hidden, true);
+  assert.match(h.elements['#saved-list'].innerHTML, /das Vokabel/);
+  const lookup = h.savedWordButtons()[0].listeners.click();
+  assert.equal(h.elements['#saved-view'].hidden, true);
+  assert.equal(h.elements['#lookup-view'].hidden, false);
+  assert.equal(h.elements['#word'].value, 'Vokabel');
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^German to English/);
+  assert.equal(h.requests[0].url, url);
+  h.respond(0);
+  await lookup;
+  assert.match(h.elements['#result'].innerHTML, /Vokabel/);
+  assert.equal(h.savedState.lookupWord, 'Vokabel');
+  assert.equal(h.savedState.lookupMode, 'de-en');
+});
+
+test('deletion and Undo persist before updating the count', async () => {
+  const h = harness();
+  await tick();
+  h.context.renderGermanEntry(germanEntry('Bruder', { article: 'der' }));
+  await h.context.saveCurrentWord();
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  await h.deleteButtons()[0].listeners.click();
+  assert.equal(h.savedState.savedWords.length, 0);
+  assert.equal(h.elements['#saved-count'].textContent, '0/100');
+  assert.match(h.elements['#saved-list'].innerHTML, /No saved words yet/);
+  assert.equal(h.elements['#undo-delete'].hidden, false);
+  await h.elements['#undo-delete'].listeners.click();
+  assert.equal(h.savedState.savedWords.length, 1);
+  assert.equal(h.elements['#saved-count'].textContent, '1/100');
+  assert.equal(h.elements['#undo-delete'].hidden, true);
+  assert.equal(h.elements['#save-word'].textContent, 'Saved');
+});
+
+test('opening Saved cancels lookups and audio without allowing late results to replace it', async () => {
+  const h = harness();
+  await tick();
+  let paused = false;
+  h.context.testAudio = { pause: () => { paused = true; } };
+  const lookup = h.context.runLookup('pending');
+  vm.runInContext('activeAudio = testAudio', h.context);
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.equal(h.requests[0].options.signal.aborted, true);
+  assert.equal(paused, true);
+  const list = h.elements['#saved-list'].innerHTML;
+  h.respond(0);
+  await lookup;
+  assert.equal(h.elements['#saved-view'].hidden, false);
+  assert.equal(h.elements['#saved-list'].innerHTML, list);
+  h.elements['#lookup-tab'].listeners.click();
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /class="loading"/);
+  assert.equal(h.requests.length, 1);
+});
+
+test('full lists disable new saves while keeping existing saved entries marked', async () => {
+  const h = harness({ savedWords: Array.from({ length: 100 }, (_, i) => ({ lemma: `Wort${i}`, meaning: 'word', article: 'die', partOfSpeech: 'noun', savedAt: i })) });
+  await tick();
+  h.context.renderGermanEntry(germanEntry('New'));
+  assert.equal(h.elements['#save-word'].disabled, true);
+  assert.match(h.elements['#save-status'].textContent, /List full/);
+  h.context.renderGermanEntry(germanEntry('Wort1'));
+  assert.equal(h.elements['#save-word'].textContent, 'Saved');
+  assert.equal(h.elements['#saved-count'].textContent, '100/100');
+});
+
+test('save and delete errors do not claim success or remove words', async () => {
+  const h = harness();
+  await tick();
+  h.context.renderGermanEntry(germanEntry('Bruder'));
+  const send = h.context.chrome.runtime.sendMessage;
+  h.context.chrome.runtime.sendMessage = async () => ({ ok: false, error: 'Storage unavailable' });
+  await h.context.saveCurrentWord();
+  assert.equal(h.elements['#save-word'].textContent, 'Save');
+  assert.match(h.elements['#save-status'].textContent, /Storage unavailable/);
+  assert.equal(h.savedState.savedWords, undefined);
+  h.context.chrome.runtime.sendMessage = send;
+  await h.context.saveCurrentWord();
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  h.context.chrome.runtime.sendMessage = async () => ({ ok: false, error: 'Storage unavailable' });
+  await h.deleteButtons()[0].listeners.click();
+  assert.equal(h.savedState.savedWords.length, 1);
+  assert.match(h.elements['#saved-list'].innerHTML, /Bruder/);
+  assert.match(h.elements['#saved-status'].textContent, /Storage unavailable/);
+});
+
+test('saved meanings are escaped and unsafe source links fall back to a normal lookup', async () => {
+  const h = harness();
+  await tick();
+  h.context.renderGermanEntry(germanEntry('Haus', { meaning: '<img src=x onerror=alert(1)>', sourceUrl: 'https://evil.example/' }));
+  await h.context.saveCurrentWord();
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.doesNotMatch(h.elements['#saved-list'].innerHTML, /<img/);
+  assert.match(h.elements['#saved-list'].innerHTML, /&lt;img/);
+  const lookup = h.savedWordButtons()[0].listeners.click();
+  assert.equal(new URL(h.requests[0].url).origin, 'https://www.verbformen.com');
+  assert.equal(new URL(h.requests[0].url).searchParams.get('w'), 'Haus');
+  h.respond(0);
+  await lookup;
+});
+
+test('an unreadable saved list shows an error and can be loaded again from Saved', async () => {
+  let unavailable = true;
+  const state = {};
+  Object.defineProperty(state, 'savedWords', { enumerable: true, get() {
+    if (unavailable) throw new Error('Storage unavailable');
+    return [];
+  } });
+  const h = harness(state);
+  await tick();
+  h.context.renderGermanEntry(germanEntry('Haus'));
+  assert.equal(h.elements['#save-word'].disabled, true);
+  assert.match(h.elements['#save-status'].textContent, /Storage unavailable/);
+  unavailable = false;
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.match(h.elements['#saved-list'].innerHTML, /No saved words yet/);
+  assert.equal(h.elements['#save-word'].disabled, false);
+  assert.equal(h.elements['#save-status'].textContent, '');
+});
+
+test('entries without an English meaning cannot be saved', async () => {
+  const h = harness();
+  await tick();
+  h.context.renderGermanEntry(germanEntry('Haus', { meaning: '' }));
+  assert.equal(h.elements['#result'].querySelector('#save-word'), null);
 });

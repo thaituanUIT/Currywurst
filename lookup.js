@@ -1,9 +1,13 @@
 // Resolve only the requested word. These are bounded fallbacks, not a crawl.
 async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache = new Map() } = {}) {
+  const adjectiveCandidates = germanAdjectiveCandidates(word);
+  // Preserve the existing fallback allowance and reserve at most two extra
+  // requests for adjective forms instead of exhausting it on noun guesses.
+  const requestLimit = 6 + adjectiveCandidates.length;
   const load = async (url) => {
     signal.throwIfAborted();
     if (!cache.has(url)) {
-      if (cache.size >= 6) return null;
+      if (cache.size >= requestLimit) return null;
       cache.set(url, loadPage(url).catch((error) => {
         if (error.status === 404) return null;
         throw error;
@@ -48,6 +52,13 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     const found = await inspect(`https://www.verbformen.com/${path}?w=${encodeURIComponent(word)}&l=11`);
     if (found) return found;
   }
+  const inspectAdjective = candidate => inspect(/^[a-z-]+$/.test(candidate)
+    ? `https://www.verbformen.com/declension/adjectives/${encodeURIComponent(candidate)}.htm`
+    : `https://www.verbformen.com/declension/adjectives/?w=${encodeURIComponent(candidate)}&l=11`);
+  if (!nounSelection && adjectiveCandidates.length) {
+    const found = await inspectAdjective(adjectiveCandidates[0]);
+    if (found) return found;
+  }
   // Query routes can miss a noun even when its dedicated page exists. Try
   // the unchanged noun before stripping endings that may be part of its stem.
   const nounCandidates = /^[\p{L}-]{3,60}$/u.test(word)
@@ -60,12 +71,31 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     const found = await inspect(url);
     if (found) return found;
   }
+  for (const candidate of adjectiveCandidates.slice(nounSelection ? 0 : 1)) {
+    const found = await inspectAdjective(candidate);
+    if (found) return found;
+  }
   for (const candidate of germanImperativeCandidates(word)) {
     const found = await inspect(`https://www.verbformen.com/conjugation/?w=${encodeURIComponent(candidate)}&l=11`);
     // inspect still validates against the ORIGINAL selection, never the guess.
     if (found) return found;
   }
   return null;
+}
+
+function germanAdjectiveCandidates(word) {
+  if (!/^[\p{L}-]{3,60}$/u.test(word)) return [];
+  const value = word.normalize("NFC").toLocaleLowerCase("de-DE");
+  const match = value.match(/^(.{2,})(en|em|er|es|e)$/u);
+  if (!match) return [];
+  const [, stem, ending] = match;
+  const candidates = [stem];
+  // A second bounded candidate covers final-e adjectives (leise), contracted
+  // stems (dunkel/teuer), or declined comparatives (kleineren -> klein).
+  if (stem.endsWith("er") && stem.length > 4) candidates.push(stem.slice(0, -2));
+  else if (/[lr]$/.test(stem)) candidates.push(`${stem.slice(0, -1)}e${stem.at(-1)}`);
+  else if (ending !== "e" && !/[aeiouyäöü]$/.test(stem)) candidates.push(`${stem}e`);
+  return [...new Set(candidates)].filter(candidate => candidate.length >= 2).slice(0, 2);
 }
 
 function germanNounCandidates(word) {

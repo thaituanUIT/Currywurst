@@ -1,3 +1,21 @@
+importScripts("saved-words.js");
+const savedWordsStore = createSavedWordsStore(chrome.storage.local);
+
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message?.type !== "savedWords") return;
+  const actions = {
+    list: () => savedWordsStore.list(),
+    add: () => savedWordsStore.add(message.entry),
+    remove: () => savedWordsStore.remove(message.id),
+    restore: () => savedWordsStore.restore(message.entry),
+  };
+  Promise.resolve().then(() => {
+    if (!Object.hasOwn(actions, message.action)) throw new Error("Unknown saved-word action.");
+    return actions[message.action]();
+  }).then(value => respond({ ok: true, ...value }), error => respond({ ok: false, error: error.message }));
+  return true;
+});
+
 const MENU_ID = "german-word-lookup";
 
 chrome.runtime.onInstalled.addListener(() => {

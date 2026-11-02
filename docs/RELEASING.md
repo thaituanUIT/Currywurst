@@ -11,6 +11,7 @@ The [release workflow](../.github/workflows/release.yml) publishes a release whe
    node tests/parser-logic.test.cjs
    node tests/lookup-routing.test.cjs
    node tests/lookup.test.cjs
+   node tests/saved-words.test.cjs
    node tests/release.test.cjs
    ```
 
