@@ -84,6 +84,11 @@ button:active { transform: translateY(1px); }
 .save-status:empty { display: none; }
 .saved-row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
 .saved-row:last-child { border-bottom: 0; }
+.saved-word-block { flex: 1; min-width: 0; }
+.saved-word-block .saved-word { width: 100%; }
+.meaning-source { margin: 8px 0 0; font-size: 10px; color: var(--muted); line-height: 1.6; }
+.meaning-source a { color: var(--accent); }
+.saved-word-block .meaning-source { margin: -4px 0 12px; }
 .saved-word { flex: 1; min-width: 0; padding: 12px 0; border: 0; background: transparent; text-align: left; color: inherit; }
 .saved-word > span:first-child { display: block; color: var(--accent); font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
 .saved-meaning { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }

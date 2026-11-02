@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 
 // Run from the repository root. Only these files go into the user download.
 const files = [
-  'manifest.json', 'background.js', 'parser.js', 'lookup.js', 'saved-words.js',
+  'manifest.json', 'background.js', 'parser.js', 'lookup.js', 'saved-words.js', 'meaning.js',
   'popup.html', 'popup.css', 'popup.js', 'icon.svg',
   'icons/icon-16.png', 'icons/icon-48.png', 'icons/icon-128.png',
   'README.md', 'CHANGELOG.md',

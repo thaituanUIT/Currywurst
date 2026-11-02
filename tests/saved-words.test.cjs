@@ -109,3 +109,22 @@ test('background messages use the shared store and reject unknown actions', asyn
   assert.equal((await send({ action: 'constructor' })).ok, false);
   assert.equal(listener({ type: 'other' }, {}, () => assert.fail()), undefined);
 });
+
+test('fallback definition attribution survives saving, reopening, deletion and undo', async () => {
+  const h = harness();
+  const meaningSource = { provider: 'Wiktionary', url: 'https://en.wiktionary.org/w/index.php?title=Lernender&oldid=123', revisionId: 123, license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/' };
+  let { words } = await h.store.add(entry('Lernende', { meaning: 'learner; student', meaningSource }));
+  assert.deepEqual(clone(words[0].meaningSource), meaningSource);
+  const { removed } = await h.store.remove(words[0].id);
+  ({ words } = await h.store.restore(removed));
+  assert.deepEqual(clone(words[0].meaningSource), meaningSource);
+  assert.deepEqual(clone((await h.context.createSavedWordsStore(h.storage).list()).words[0].meaningSource), meaningSource);
+});
+
+test('saved definition attribution rejects hostile URLs and normalizes the license link', async () => {
+  const h = harness();
+  let { words } = await h.store.add(entry('first', { meaningSource: { provider: 'Wiktionary', url: 'javascript:alert(1)' } }));
+  assert.equal(words[0].meaningSource, undefined);
+  ({ words } = await h.store.add(entry('second', { meaningSource: { provider: 'Wiktionary', url: 'https://en.wiktionary.org/wiki/Lernende', licenseUrl: 'https://evil.example/' } })));
+  assert.equal(words.find(word => word.lemma === 'second').meaningSource.licenseUrl, 'https://creativecommons.org/licenses/by-sa/4.0/');
+});

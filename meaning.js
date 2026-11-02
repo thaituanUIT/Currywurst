@@ -1,0 +1,133 @@
+const MEANING_LICENSE = "https://creativecommons.org/licenses/by-sa/4.0/";
+
+function wiktionaryTitle(href) {
+  try {
+    const url = new URL(href, "https://en.wiktionary.org");
+    if (url.origin !== "https://en.wiktionary.org" || !url.pathname.startsWith("/wiki/")) return null;
+    const title = decodeURIComponent(url.pathname.slice(6)).replace(/_/g, " ");
+    return /^[\p{L}][\p{L} '-]{0,159}$/u.test(title) ? title : null;
+  } catch { return null; }
+}
+
+function headingSection(heading, headings, root) {
+  const next = headings.find(node => heading.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const boundary = node => node.closest(".mw-heading") || node;
+  const range = document.createRange();
+  range.setStartAfter(boundary(heading));
+  if (next) range.setEndBefore(boundary(next));
+  else range.setEnd(root, root.childNodes.length);
+  const section = range.cloneContents();
+  range.detach();
+  return section;
+}
+
+function parseWiktionaryMeaning(payload, entry) {
+  if (!payload?.parse || typeof payload.parse.text !== "string") return { meaning: "", related: [] };
+  if (normalizeGermanForm(payload.parse.title) !== normalizeGermanForm(entry.lemma)) return { meaning: "", related: [] };
+  const doc = parseDictionaryDocument(payload.parse.text);
+  const languages = [...doc.querySelectorAll("h2")];
+  const german = languages.find(node => node.id === "German" || node.querySelector('[id="German"]') || node.textContent.replace(/\[edit\]/g, "").trim() === "German");
+  if (!german) return { meaning: "", related: [] };
+  const section = headingSection(german, languages, doc);
+  const headings = [...section.querySelectorAll("h3,h4,h5,h6")];
+  const related = new Set();
+  const expectedGender = { der: "m", die: "f", das: "n" }[entry.article];
+  const meanings = [];
+  for (const heading of headings) {
+    const type = heading.textContent.replace(/\[edit\]/g, "").trim().toLowerCase().replace(/^proper noun$/, "noun");
+    if (type !== entry.partOfSpeech) continue;
+    const block = headingSection(heading, headings, section);
+    const line = block.querySelector(".headword-line") || block.querySelector(".headword")?.closest("p");
+    const headword = line?.querySelector(".headword");
+    if (!headword || normalizeGermanForm(headword.textContent) !== normalizeGermanForm(entry.lemma)) continue;
+    const genders = [...line.querySelectorAll(".gender")].flatMap(node => node.textContent.split(/[^mfn]+/)).filter(Boolean);
+    const genderMatches = !expectedGender || genders.includes(expectedGender);
+    // Only attested relationships can lead to a second page. Ordinary links
+    // in definitions (e.g. the English word 'learner') are never followed.
+    const links = [...block.querySelectorAll(".form-of-definition-link a, a.form-of-definition-link, .form-of-definition a[lang='de']")];
+    for (const link of line.querySelectorAll("a[href]")) {
+      const title = wiktionaryTitle(link.getAttribute("href"));
+      const family = value => normalizeGermanForm(value).replace(/(?:er|en|e|r|n|m)$/, "");
+      if (title && family(title) === family(entry.lemma)) links.push(link);
+    }
+    for (const link of links) {
+      const title = wiktionaryTitle(link.getAttribute("href"));
+      if (title && title !== entry.lemma && (entry.partOfSpeech !== "noun" || /^\p{Lu}/u.test(title))) related.add(title);
+    }
+    if (!genderMatches) continue;
+    const lists = [...block.querySelectorAll("ol")].filter(node => !node.parentElement?.closest("li"));
+    for (const list of lists) for (const item of list.children) {
+      if (item.tagName !== "LI") continue;
+      const copy = item.cloneNode(true);
+      copy.querySelectorAll("ol,ul,dl,sup,.quotation,.usage-example,.HQToggle,.nyms-toggle").forEach(node => node.remove());
+      let text = copy.textContent.replace(/\s+/g, " ").trim();
+      if (/^(?:inflection|plural|singular|past participle|present participle|alternative (?:form|spelling)) of\b/i.test(text)) continue;
+      if (/^(?:nominalization|female equivalent|male equivalent) of\b/i.test(text)) text = text.includes(":") ? text.slice(text.indexOf(":") + 1).trim() : "";
+      if (text && text.length <= 1000) meanings.push(text);
+    }
+  }
+  const candidates = [...related];
+  if (expectedGender === "m") candidates.sort((a, b) => Number(b === `${entry.lemma}r`) - Number(a === `${entry.lemma}r`));
+  return { meaning: [...new Set(meanings)].slice(0, 3).join("; "), related: candidates };
+}
+
+function createEnglishMeaningFallback({ fetchImpl = fetch, parsePage = parseWiktionaryMeaning, storage, timeoutMs = 4000 } = {}) {
+  const cache = new Map();
+  return async function findEnglishMeaning(entry, parentSignal) {
+    if (entry.meaning || !entry.lemma || !entry.partOfSpeech) return null;
+    const key = JSON.stringify([entry.lemma.normalize("NFC"), entry.partOfSpeech, entry.article || ""]);
+    const controller = new AbortController();
+    const cancel = () => controller.abort(parentSignal.reason);
+    if (parentSignal?.aborted) throw parentSignal.reason;
+    parentSignal?.addEventListener("abort", cancel, { once: true });
+    let abortListener;
+    const abortPromise = new Promise((resolve, reject) => {
+      abortListener = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", abortListener, { once: true });
+    });
+    const timer = setTimeout(() => controller.abort(new Error("Meaning lookup timed out")), timeoutMs);
+    const work = async () => {
+      if (!cache.size && storage) {
+        const { meaningCache = {} } = await storage.get("meaningCache").catch(() => ({}));
+        for (const [id, item] of Object.entries(meaningCache).slice(-100)) if (item?.expires > Date.now()) cache.set(id, item);
+      }
+      controller.signal.throwIfAborted();
+      const cached = cache.get(key);
+      if (cached?.expires > Date.now()) return cached.value;
+      let title = entry.lemma;
+      const seen = new Set();
+      let value = null;
+      for (let count = 0; count < 2 && title && !seen.has(title); count++) {
+        seen.add(title);
+        const url = new URL("https://en.wiktionary.org/w/api.php");
+        url.search = new URLSearchParams({ action: "parse", page: title, prop: "text", redirects: "1", format: "json", formatversion: "2" }).toString();
+        const response = await fetchImpl(url.href, { signal: controller.signal, credentials: "omit", headers: { Accept: "application/json" } });
+        if (response.url && new URL(response.url).origin !== "https://en.wiktionary.org") throw new Error("Unexpected meaning-source redirect.");
+        if (!response.ok) break;
+        const payload = await response.json();
+        controller.signal.throwIfAborted();
+        const parsed = parsePage(payload, { ...entry, lemma: title });
+        if (parsed.meaning) {
+          const source = new URL("https://en.wiktionary.org/w/index.php");
+          source.searchParams.set("title", payload.parse.title);
+          if (Number.isInteger(payload.parse.revid)) source.searchParams.set("oldid", String(payload.parse.revid));
+          value = { meaning: parsed.meaning, meaningSource: { provider: "Wiktionary", url: source.href, revisionId: payload.parse.revid, license: "CC BY-SA 4.0", licenseUrl: MEANING_LICENSE } };
+          break;
+        }
+        title = (parsed.related || []).find(candidate => !seen.has(candidate));
+      }
+      controller.signal.throwIfAborted();
+      cache.set(key, { value, expires: Date.now() + (value ? 86400000 : 300000) });
+      while (cache.size > 100) cache.delete(cache.keys().next().value);
+      if (storage) storage.set({ meaningCache: Object.fromEntries(cache) }).catch(() => {});
+      return value;
+    };
+    try { return await Promise.race([work(), abortPromise]); }
+    catch (error) { if (parentSignal?.aborted) throw error; return null; }
+    finally {
+      clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", cancel);
+      controller.signal.removeEventListener("abort", abortListener);
+    }
+  };
+}

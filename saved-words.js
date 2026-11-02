@@ -20,8 +20,23 @@ function savedWordRecord(entry, savedAt = Date.now()) {
     const url = new URL(entry.sourceUrl);
     if (url.origin === "https://www.verbformen.com" && !url.username && !url.password) sourceUrl = url.href;
   } catch { /* Search-only entries can be looked up again by their lemma. */ }
-  const record = { lemma, meaning, partOfSpeech, article, sourceUrl, savedAt };
+  const meaningSource = safeMeaningSource(entry.meaningSource);
+  const record = { lemma, meaning, partOfSpeech, article, sourceUrl, savedAt, ...(meaningSource ? { meaningSource } : {}) };
   return { ...record, id: savedWordId(record) };
+}
+
+function safeMeaningSource(value) {
+  if (value?.provider !== "Wiktionary") return null;
+  try {
+    const url = new URL(value.url);
+    if (url.origin !== "https://en.wiktionary.org" || url.username || url.password
+      || !(url.pathname.startsWith("/wiki/") || url.pathname === "/w/index.php")) return null;
+    return {
+      provider: "Wiktionary", url: url.href,
+      ...(Number.isInteger(value.revisionId) && value.revisionId > 0 ? { revisionId: value.revisionId } : {}),
+      license: "CC BY-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
+    };
+  } catch { return null; }
 }
 
 // The background worker owns this queue so separate popup windows cannot

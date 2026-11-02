@@ -5,7 +5,7 @@ function parseVerbformen(html, word, sourceUrl) {
   const cleanText = cleanDictionaryText;
   const heading = doc.querySelector("h1");
   const title = cleanText(heading?.textContent || "") || word;
-  const lemma = extractLemma(title, word);
+  let lemma = extractLemma(title, word);
   const main = heading?.closest("main, article") || heading?.parentElement?.parentElement || doc;
   const text = cleanText(dictionaryText(main));
   const headingIndex = text.indexOf(title);
@@ -37,6 +37,9 @@ function parseVerbformen(html, word, sourceUrl) {
   });
   const grammarLine = summaryNode ? cleanText(summaryNode.textContent) : lines.find((line) => summaryPattern.test(line)) || "";
   const { level, partOfSpeech, grammarTags } = parseGrammarSummary(grammarLine, title);
+  const comparisonVariants = partOfSpeech === "adjective" ? extractComparisonVariants(doc, sourceUrl) : [];
+  const positive = comparisonVariants.find(variant => variant.degree === "positive");
+  if (positive) lemma = positive.form;
   const grammar = grammarTags.join(" · ");
   const principalParts = ["verb", "adjective"].includes(partOfSpeech) ? lines.find((line) => {
     const parts = line.split("·").map((part) => part.trim());
@@ -109,6 +112,7 @@ function parseVerbformen(html, word, sourceUrl) {
     article: nounArticle,
     headwordForms,
     variants,
+    comparisonVariants,
     usageNotes,
     inflectionTables,
     excerpt: entryText.replace(/\s+/g, " ").slice(0, 900),
@@ -121,12 +125,15 @@ function parseVerbformen(html, word, sourceUrl) {
 function extractEnglishMeaning(doc, heading, cleanText) {
   // A comma-separated Latin alphabet list may belong to any language. Read
   // the text beside the English flag instead of guessing from punctuation.
-  const isAfterHeading = (node) => !heading || Boolean(heading.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const headings = [...doc.querySelectorAll("h2,h3,h4,h5")];
+  const isAfterHeading = (node) => (!heading || Boolean(heading.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING))
+    && !headingPathFor(node, headings).some(title => /\b(?:examples|sentences)\b/i.test(title));
   const markers = [...doc.querySelectorAll("img[alt], img[title]")].filter((image) =>
     /^(English|Englisch)$/i.test((image.getAttribute("alt") || "").trim()) ||
     /^(English|Englisch)$/i.test((image.getAttribute("title") || "").trim()),
   );
   for (const marker of markers.filter(isAfterHeading)) {
+    if (/»/.test(marker.closest("p,li")?.textContent || "")) continue;
     let container = marker.parentElement;
     for (let depth = 0; container && depth < 4; depth++, container = container.parentElement) {
       // Stop before combining an entire multilingual translation panel.
@@ -158,8 +165,29 @@ function dictionaryText(root) {
 function extractLemma(title, fallback) {
   const match = title.replace(/\s+/g, " ").match(new RegExp(`\\b(${DICTIONARY_WORD_TYPES})\\s+(.+?)(?:\\s+with plural\\b.*|\\s*⟨.*|$)`, "iu"));
   if (!match) return fallback;
-  const lemma = match[2].replace(/\s*·\s*/g, "").replace(/^(?:der|die|das)\s+/i, "").trim();
+  const lemma = cleanHeadword(match[2]).replace(/^(?:der|die|das)\s+/i, "");
   return match[1].toLowerCase() === "verb" ? lemma.replace(/\s+/g, "") : lemma;
+}
+
+function cleanHeadword(value) {
+  return value.replace(/\s*·\s*/g, "").replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹„“”"]/g, "")
+    .replace(/\s*<[^>]+>/g, "").replace(/\s*\((?:regelm\.?|unr\.?|regular|irregular|positive|comparative|superlative)\)/gi, "")
+    .replace(/\s+/g, " ").trim();
+}
+
+function extractComparisonVariants(doc, sourceUrl) {
+  const seen = new Set();
+  return [...doc.querySelectorAll("a[href]")].flatMap(link => {
+    const url = dictionaryEntryUrl(link.getAttribute("href"), sourceUrl);
+    if (!url || !new URL(url).pathname.startsWith("/declension/adjectives/")) return [];
+    const match = cleanHeadword(link.textContent).match(/^(positive|comparative|superlative)\s+(.+)$/i);
+    if (!match) return [];
+    const degree = match[1].toLowerCase();
+    const form = match[2].replace(/^am\s+/, "").replace(/\s+/g, "");
+    if (!/^[\p{L}-]+$/u.test(form) || seen.has(degree)) return [];
+    seen.add(degree);
+    return [{ degree, label: degree[0].toUpperCase() + degree.slice(1), form, url }];
+  });
 }
 
 function parseGrammarSummary(summary, title) {
@@ -261,10 +289,11 @@ function expandGermanForms(value) {
 
 function isGermanEntryMatch(entry, word) {
   const knownTitle = new RegExp(`\\b(?:${DICTIONARY_WORD_TYPES})\\s+`, "i").test(entry.title || "");
-  if (!knownTitle || (!entry.meaning && !entry.inflectionTables?.length)) return false;
+  if (!knownTitle || (!entry.meaning && !entry.inflectionTables?.length && !dictionaryEntryUrl(entry.sourceUrl, "https://www.verbformen.com/"))) return false;
   const query = normalizeGermanForm(word);
   if (!query) return false;
   if (expandGermanForms(entry.lemma).includes(query)) return true;
+  if ((entry.comparisonVariants || []).some(variant => expandGermanForms(variant.form).includes(query))) return true;
   if ((entry.headwordForms || []).some((form) => expandGermanForms(form).includes(query))) return true;
   if ((entry.principalParts || "").split("·").some((part) => expandGermanForms(part).some((form) => form === query || form.split(" ").includes(query)))) return true;
   return (entry.inflectionTables || []).some((table) => table.rows.some((row) => {
@@ -380,12 +409,11 @@ function parseSearchCards(html, sourceUrl) {
     for (let depth = 0; card && depth < 7; depth++, card = card.parentElement) {
       if (summaries.filter((node) => card.contains(node)).length > 1) break;
       const meaning = extractEnglishMeaning(card, null, cleanDictionaryText);
-      if (!meaning) continue;
       const summaryText = cleanDictionaryText(summary.textContent).replace(/\s+/g, " ");
       const lines = dictionaryText(card).split("\n").map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
       const index = lines.findIndex((line) => line === summaryText);
       if (index < 0 || !lines[index + 1]) continue;
-      const rawLabel = lines[index + 1].replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹„“”"]/g, "").replace(/\s*<[^>]+>/g, "").trim();
+      const rawLabel = cleanHeadword(lines[index + 1]);
       const lemma = rawLabel.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "").replace(/\s*·\s*/g, "");
       if (!/^[\p{L}]+(?:[ '-][\p{L}]+)*$/u.test(lemma)) continue;
       const metadata = parseGrammarSummary(summaryText, "");
@@ -394,9 +422,10 @@ function parseSearchCards(html, sourceUrl) {
       const encode = (value) => value.replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char]);
       const entryHtml = `<main><h1>German ${type} ${encode(lemma)}</h1>${card.outerHTML}</main>`;
       const data = parseVerbformen(entryHtml, lemma, sourceUrl);
-      const links = [...card.querySelectorAll("a[href]")].map((link) => ({ text: normalizeGermanForm(link.textContent), url: dictionaryEntryUrl(link.getAttribute("href"), sourceUrl) })).filter((entry) => entry.url);
+      const links = [...card.querySelectorAll("a[href]")].map((link) => ({ text: normalizeGermanForm(cleanHeadword(link.textContent)), url: dictionaryEntryUrl(link.getAttribute("href"), sourceUrl) })).filter((entry) => entry.url);
       const urls = [...new Set(links.map((entry) => entry.url))];
       const detailUrl = links.find((entry) => entry.text === normalizeGermanForm(lemma) || entry.text.endsWith(` ${normalizeGermanForm(lemma)}`))?.url || (urls.length === 1 ? urls[0] : null);
+      if (!meaning && !detailUrl && !data.inflectionTables.length) continue;
       const article = type === "noun" ? rawLabel.match(/\b(der|die|das)\b/i)?.[1] || (metadata.grammarTags.includes("feminine") ? "die" : metadata.grammarTags.includes("masculine") ? "der" : metadata.grammarTags.some((tag) => /^(neutral|neuter)$/.test(tag)) ? "das" : "") : "";
       const url = detailUrl || sourceUrl;
       const signature = `${type}|${lemma}|${article}|${detailUrl || ""}|${meaning}`;
@@ -411,7 +440,7 @@ function parseSearchCards(html, sourceUrl) {
 }
 
 function parseGermanSearchEntries(html, query, sourceUrl) {
-  return parseSearchCards(html, sourceUrl).filter((entry) => isGermanEntryMatch(entry.data, query));
+  return parseSearchCards(html, sourceUrl).filter((entry) => isGermanEntryMatch({ ...entry.data, sourceUrl: entry.detailUrl || entry.url }, query));
 }
 
 function nounArticleFromTags(tags = []) {

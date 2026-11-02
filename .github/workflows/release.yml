@@ -36,7 +36,7 @@ jobs:
       - name: Check JavaScript syntax and run tests
         run: |
           set -euo pipefail
-          for file in background.js parser.js lookup.js saved-words.js popup.js scripts/package-release.mjs; do
+          for file in background.js parser.js lookup.js saved-words.js meaning.js popup.js scripts/package-release.mjs; do
             node --check "$file"
           done
           for file in tests/*.test.cjs; do

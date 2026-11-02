@@ -13,7 +13,7 @@ function harness(respond) {
     URL,
     dictionaryEntryUrl: parser.dictionaryEntryUrl,
     isGermanEntryMatch: parser.isGermanEntryMatch,
-    parseVerbformen: html => html.entry || empty,
+    parseVerbformen: (html, word, sourceUrl) => ({ ...(html.entry || empty), word, sourceUrl }),
     parseGermanSearchEntries: (html, word) => (html.cards || []).filter(card => parser.isGermanEntryMatch(card.data, word)),
   });
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
@@ -151,7 +151,8 @@ test('exact noun pages recover singulars before trying suffix guesses', async ()
       assert.equal(result?.data.lemma, lemma, query);
       assert.equal(result.data.word, query);
       const adjectiveFirst = query === lemma.toLocaleLowerCase('de-DE') && h.context.germanAdjectiveCandidates(query).length > 0;
-      assert.equal(h.calls.length, adjectiveFirst ? 5 : 4);
+      const pastFirst = query === lemma.toLocaleLowerCase('de-DE') && h.context.germanPastTenseCandidates(query).length > 0;
+      assert.equal(h.calls.length, 4 + Number(adjectiveFirst) + Number(pastFirst));
       assert.equal(h.calls.at(-1).pathname, `/declension/nouns/${lemma}.htm`);
     }
   }
@@ -210,9 +211,9 @@ test('adjective guesses cannot be accepted without the original form in the sour
 });
 
 test('adjective recovery preserves final e, contracted stems, and comparative bases', async () => {
-  for (const [query, lemma] of [['müden', 'müde'], ['leises', 'leise'], ['dunklen', 'dunkel'], ['teuren', 'teuer'], ['kleineren', 'klein']]) {
+  for (const [query, lemma, slug = lemma] of [['müden', 'müde', 'mu3de'], ['leises', 'leise'], ['dunklen', 'dunkel'], ['teuren', 'teuer'], ['kleineren', 'klein']]) {
     const data = { title: `German adjective ${lemma}`, lemma, partOfSpeech: 'adjective', meaning: 'example', inflectionTables: [{ title: 'Dative', rows: [['Dat.', query]] }] };
-    const h = harness(url => url.pathname === `/declension/adjectives/${lemma}.htm` || url.pathname === '/declension/adjectives/' && url.searchParams.get('w') === lemma ? { html: { entry: data } } : {});
+    const h = harness(url => url.pathname === `/declension/adjectives/${slug}.htm` ? { html: { entry: data } } : {});
     const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
     assert.equal(result?.data.lemma, lemma, query);
     assert.equal(result.data.word, query);
@@ -225,4 +226,62 @@ test('lowercase noun plurals remain recoverable alongside adjective guesses', as
   const h = harness(url => url.pathname === '/declension/nouns/Student.htm' ? { html: { entry: noun } } : {});
   assert.equal((await h.context.lookupGermanEntry('studenten', h.load, h.signal))?.data.lemma, 'Student');
   assert.ok(h.calls.length <= 8);
+});
+
+test('umlaut and sharp-s nouns use the source slug encoding', async () => {
+  for (const [query, slug] of [['Übungsbuch', 'U3bungsbuch'], ['übungsbuch', 'U3bungsbuch'], ['Straße', 'Stras5e'], ['Öl', 'O3l']]) {
+    const lemma = query[0].toLocaleUpperCase('de-DE') + query.slice(1);
+    const noun = { title: `German noun ${lemma}`, lemma, partOfSpeech: 'noun', meaning: 'workbook', inflectionTables: [] };
+    const h = harness(url => url.pathname === `/declension/nouns/${slug}.htm` ? { html: { entry: noun } } : {});
+    const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+    assert.equal(result?.data.lemma, lemma, query);
+    assert.equal(result.data.word, query);
+    assert.ok(h.calls.length <= 8);
+  }
+});
+
+test('regular past-tense selections recover verwenden and verify the selected conjugation', async () => {
+  for (const query of ['verwendete', 'verwendetest', 'verwendeten', 'verwendetet', 'Verwendete']) {
+    const verb = { title: 'Conjugation of German verb verwenden', lemma: 'verwenden', partOfSpeech: 'verb', meaning: 'use, employ', inflectionTables: [{ title: 'Imperfect', rows: [['ich', 'verwendete'], ['du', 'verwendetest'], ['wir', 'verwendeten'], ['ihr', 'verwendetet']] }] };
+    const h = harness(url => url.pathname === '/conjugation/verwenden.htm' ? { html: { entry: verb } } : {});
+    const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+    assert.equal(result?.data.lemma, 'verwenden', query);
+    assert.equal(result.data.word, query);
+    assert.ok(h.calls.length <= 8);
+  }
+});
+
+test('the exact adjective is selected before a matching comparative and keeps alternatives', async () => {
+  const adjective = { title: 'German adjective ausgesprochen', lemma: 'ausgesprochen', partOfSpeech: 'adjective', meaning: 'pronounced, explicit', inflectionTables: [], comparisonVariants: [
+    { degree: 'positive', form: 'ausgesprochen', url: 'https://www.verbformen.com/declension/adjectives/ausgesprochen.htm' },
+    { degree: 'comparative', form: 'ausgesprochener', url: 'https://www.verbformen.com/declension/adjectives/ausgesprochener.htm' },
+  ] };
+  const comparative = { ...adjective, lemma: 'ausgesprochener', principalParts: 'ausgesprochen · ausgesprochener · am ausgesprochensten' };
+  const h = harness(url => url.pathname === '/' ? { html: { cards: [
+    { data: comparative, label: 'ausgesprochener', detailUrl: comparative.comparisonVariants[1].url },
+    { data: adjective, label: 'ausgesprochen', detailUrl: adjective.comparisonVariants[0].url },
+  ] } } : { html: { entry: adjective } });
+  const result = await h.context.lookupGermanEntry('ausgesprochen', h.load, h.signal);
+  assert.equal(result.data.lemma, 'ausgesprochen');
+  assert.equal(h.calls[1].pathname, '/declension/adjectives/ausgesprochen.htm');
+  assert.equal(result.data.comparisonVariants.length, 2);
+  assert.equal(result.data.entryChoices.length, 2);
+  assert.equal(h.calls.length, 2);
+});
+
+test('ausgesprochen can recover its exact adjective page when all query routes fail', async () => {
+  const adjective = { title: 'German adjective ausgesprochen', lemma: 'ausgesprochen', partOfSpeech: 'adjective', meaning: 'pronounced, explicit', inflectionTables: [] };
+  const h = harness(url => url.pathname === '/declension/adjectives/ausgesprochen.htm' ? { html: { entry: adjective } } : {});
+  assert.equal((await h.context.lookupGermanEntry('ausgesprochen', h.load, h.signal))?.data.lemma, 'ausgesprochen');
+  assert.equal(h.calls.length, 4);
+});
+
+test('verified grammar and linked lexical entries survive missing English glosses', async () => {
+  const noun = { title: 'German noun Lernende', lemma: 'Lernende', partOfSpeech: 'noun', article: 'der', meaning: '', inflectionTables: [{ title: 'Singular', rows: [['Nom.', 'der', 'Lernende'], ['Gen.', 'des', 'Lernenden'], ['Dat.', 'dem', 'Lernenden'], ['Acc.', 'den', 'Lernenden']] }] };
+  const url = 'https://www.verbformen.com/declension/nouns/Lernende.htm';
+  const h = harness(address => address.pathname === '/' ? { html: { cards: [{ data: { ...noun, sourceUrl: url, inflectionTables: [] }, detailUrl: url }] } } : { html: { entry: noun } });
+  const result = await h.context.lookupGermanEntry('Lernende', h.load, h.signal);
+  assert.equal(result?.data.lemma, 'Lernende');
+  assert.equal(result.data.meaning, '');
+  assert.equal(result.data.inflectionTables.length, 1);
 });

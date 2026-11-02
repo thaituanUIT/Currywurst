@@ -2,6 +2,19 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## 1.4.0
+
+### Fixed
+
+- Resolve German umlaut and sharp-s dictionary URLs, including **Übungsbuch**, and recover regular past-tense forms such as **verwendete → verwenden**.
+- Prefer the exact matching headword among multiple entries, handle regular/irregular headword annotations, and preserve valid grammar when an English gloss is missing.
+- Keep comparison degrees and different word types available for entries such as **ausgesprochen**, loading alternatives on demand.
+
+### Added
+
+- English Wiktionary fallback for verified entries without an English meaning, including gender-aware related lemmas, a four-second deadline, at most two requests, and a bounded session cache.
+- Source and licence attribution for fallback definitions in lookup results and saved words, plus the narrowly scoped English Wiktionary host permission and updated disclosures.
+
 ## 1.3.0
 
 ### Added
