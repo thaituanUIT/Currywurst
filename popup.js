@@ -10,6 +10,7 @@ let activeAudio;
 let inputEdited = false;
 let englishForm;
 let activeMeaningController;
+const tabEntryCache = new Map();
 const findEnglishMeaning = createEnglishMeaningFallback({ storage: chrome.storage.session });
 let view = "lookup";
 let currentEntry;
@@ -208,6 +209,7 @@ Promise.all([
 modeToggle.addEventListener("click", () => {
   inputEdited = true;
   cancelLookup();
+  tabEntryCache.clear();
   input.value = "";
   setMode(mode === "de-en" ? "en-de" : "de-en");
   chrome.storage.local.set({ lookupWord: "", lookupMode: mode }).catch(() => {});
@@ -263,6 +265,38 @@ function meaningAttribution(value) {
   const source = safeMeaningSource(value);
   if (!source) return "";
   return `<p class="meaning-source">Meaning from <a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Wiktionary</a> · <a href="${escapeHtml(source.licenseUrl)}" target="_blank" rel="noreferrer">CC BY-SA 4.0</a></p>`;
+}
+
+function tabEntryKey(href) {
+  const address = fullDictionaryEntryUrl(href, "https://www.verbformen.com/");
+  if (!address) return null;
+  const url = new URL(address);
+  url.search = "";
+  url.hash = "";
+  return url.href;
+}
+
+function cacheRenderedEntry(data) {
+  const direct = tabEntryKey(data.sourceUrl);
+  if (direct) {
+    tabEntryCache.set(direct, { ...data, sourceUrl: direct });
+    return;
+  }
+  // Query pages can render an entry without redirecting to its canonical URL.
+  // Alias only the source-linked tab that matches the displayed entry.
+  const aliases = [];
+  const genders = (data.variants || []).filter(entry => entry.article === data.article && entry.lemma === data.lemma);
+  if (genders.length === 1) aliases.push(genders[0].url);
+  const degree = (data.comparisonVariants || []).find(entry => data.grammarTags?.includes(entry.degree))
+    || (data.comparisonVariants || []).find(entry => entry.form === data.word)
+    || (data.comparisonVariants || []).find(entry => entry.degree === "positive");
+  if (degree) aliases.push(degree.url);
+  const choices = (data.entryChoices || []).filter(entry => entry.lemma === data.lemma && entry.partOfSpeech === data.partOfSpeech);
+  if (!aliases.length && choices.length === 1) aliases.push(choices[0].url);
+  for (const address of aliases) {
+    const key = tabEntryKey(address);
+    if (key) tabEntryCache.set(key, { ...data, sourceUrl: key });
+  }
 }
 
 function loadMissingMeaning(data, backState, message) {
@@ -332,6 +366,8 @@ async function detectAndLookup(word, hint, preferredMode, controller) {
 
 async function runLookup(word, detail = null, options = {}) {
   if (!word) return;
+  if (!detail?.previousData) tabEntryCache.clear();
+  const cached = detail?.previousData ? tabEntryCache.get(tabEntryKey(detail.entry.url)) : null;
   setView("lookup");
   currentEntry = undefined;
   saveError = "";
@@ -346,7 +382,7 @@ async function runLookup(word, detail = null, options = {}) {
     : { lookupWord: word, lookupMode: mode }).catch(() => {});
   sourceLink.href = detail?.entry.url || `https://www.verbformen.com/${mode === "en-de" ? "en-de/" : ""}?w=${encodeURIComponent(word)}`;
   const message = loadingMessage(word, detail, options, requestedMode);
-  result.innerHTML = `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
+  if (!cached) result.innerHTML = `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
   result.scrollTop = 0;
   try {
     if (options.automatic && !detail) {
@@ -369,7 +405,7 @@ async function runLookup(word, detail = null, options = {}) {
       if (sequence !== lookupSequence) return;
       renderEnglishResults({ query: word, entries, sourceUrl: page.sourceUrl });
     } else {
-      const found = detail
+      const found = cached ? { data: { ...cached, word }, sourceUrl: cached.sourceUrl } : detail
         ? await fetchPage(fullDictionaryEntryUrl(detail.entry.url, detail.entry.url) || detail.entry.url, controller).then((page) => ({ data: parseVerbformen(page.html, word, page.sourceUrl), sourceUrl: page.sourceUrl }))
         : await lookupGermanEntry(word, (url) => fetchPage(url, controller), controller.signal);
       if (sequence !== lookupSequence) return;
@@ -441,6 +477,7 @@ function renderEnglishResults(state) {
     const entry = state.entries[Number(button.dataset.entry)];
     if (entry.data && !entry.detailUrl) {
       cancelLookup();
+      tabEntryCache.clear();
       sourceLink.href = entry.url;
       result.scrollTop = 0;
       renderGermanEntry(entry.data, state);
@@ -451,13 +488,14 @@ function renderEnglishResults(state) {
 
 function renderGermanEntry(data, backState, message = "") {
   stopMeaningLookup();
+  if (!message) cacheRenderedEntry(data);
   currentEntry = data;
   saveError = "";
   const saveButton = data.lemma && data.meaning?.trim() ? '<button id="save-word" class="save-word" type="button">Save</button>' : "";
   const separateForm = data.lemma.toLocaleLowerCase() !== data.word.toLocaleLowerCase();
   const audioButtons = `<div class="audio-controls">${speakerButton(data.lemma, "de-DE", data.audio?.[0])}<span>${escapeHtml(data.lemma)}</span>${separateForm ? `${speakerButton(data.word, "de-DE")}<span>${escapeHtml(data.word)}</span>` : ""}</div>`;
   const tags = [data.level, data.partOfSpeech, ...(data.grammarTags || [data.grammar])].filter(Boolean).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
-  const tables = renderInflections(data.inflectionTables);
+  const tables = renderInflections(data.inflectionTables, data.partOfSpeech);
   const sourcePath = data.sourceUrl ? new URL(data.sourceUrl).pathname : "";
   const variantList = data.variants || [];
   const selectedByUrl = variantList.findIndex((variant) => new URL(variant.url).pathname === sourcePath);
@@ -495,14 +533,21 @@ function renderGermanEntry(data, backState, message = "") {
   if (!data.meaning && !data.meaningState) loadMissingMeaning(data, backState, message);
 }
 
-function renderInflections(tables) {
+function inflectionColumns(table, partOfSpeech) {
+  const cases = table.rows.filter(row => /^(?:Nom\.?|Gen\.?|Dat\.?|Acc\.?)$/i.test(row[0]));
+  const article = ["noun", "adjective"].includes(partOfSpeech) && cases.length >= 3
+    && cases.every(row => row.length === 3 && /^(?:der|die|das|des|dem|den|ein|eine|einer|eines|einem|einen|kein|keine|keiner|keines|keinem|keinen)$/i.test(row[1]));
+  return `<col class="label-column">${article ? '<col class="article-column"><col>' : ""}`;
+}
+
+function renderInflections(tables, partOfSpeech) {
   const groups = new Map();
   for (const table of tables) {
     const group = table.group || "";
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(table);
   }
-  return [...groups].map(([group, tables]) => `<section class="inflection-group">${group ? `<h2 class="group-title">${escapeHtml(group)}</h2>` : ""}${tables.map((table) => `<section class="inflection"><h3>${escapeHtml(table.title)}</h3><div class="table-scroll"><table lang="de"><colgroup><col class="label-column"></colgroup>${table.rows.map((row, ri) => `<tr>${row.map((cell, ci) => { const meta = table.cells[ri][ci]; const tag = meta.header ? "th" : "td"; return `<${tag} lang="${meta.header ? "en" : "de"}" colspan="${meta.colSpan}" rowspan="${meta.rowSpan}">${escapeHtml(cell)}</${tag}>`; }).join("")}</tr>`).join("")}</table></div></section>`).join("")}</section>`).join("");
+  return [...groups].map(([group, tables]) => `<section class="inflection-group">${group ? `<h2 class="group-title">${escapeHtml(group)}</h2>` : ""}${tables.map((table) => `<section class="inflection"><h3>${escapeHtml(table.title)}</h3><div class="table-scroll"><table lang="de"><colgroup>${inflectionColumns(table, partOfSpeech)}</colgroup>${table.rows.map((row, ri) => `<tr>${row.map((cell, ci) => { const meta = table.cells[ri][ci]; const tag = meta.header ? "th" : "td"; return `<${tag} lang="${meta.header ? "en" : "de"}" colspan="${meta.colSpan}" rowspan="${meta.rowSpan}">${escapeHtml(cell).replace(/\//g, "/<wbr>")}</${tag}>`; }).join("")}</tr>`).join("")}</table></div></section>`).join("")}</section>`).join("");
 }
 
 function bindPronunciation() {

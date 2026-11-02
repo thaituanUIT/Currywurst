@@ -54,6 +54,8 @@ Some nouns have more than one article. When article buttons appear, such as **di
 
 Adjective entries can offer **Positive**, **Comparative**, and **Superlative** buttons. If a lookup has different word types, choose the matching entry. Alternatives load when clicked.
 
+Visited gender, comparison, and word-type tabs are kept in memory while the popup is open, so switching back shows the result immediately. Starting another lookup or switching translation direction clears this tab cache. Long table forms wrap within the table width, using German hyphenation where supported and breaks between slash-separated alternatives.
+
 For a missing English definition, grammar appears first while Currywurst checks Wiktionary. If no suitable definition is found, the grammar remains available with **English meaning unavailable**.
 
 ## Save words

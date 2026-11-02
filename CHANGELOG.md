@@ -2,6 +2,13 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## Unreleased
+
+### Changed
+
+- Reuse already visited gender, comparison-degree, and word-type tabs within the current lookup. Clear this in-memory cache on a new lookup or direction switch, and keep failed or cancelled loads out of it.
+- Keep grammar tables within their fixed width, with compact article columns, automatic hyphenation, and line-break opportunities between slash-separated forms.
+
 ## 1.4.0
 
 ### Fixed
