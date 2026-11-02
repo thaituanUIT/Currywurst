@@ -2,7 +2,7 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
-## Unreleased
+## 1.3.0
 
 ### Added
 
