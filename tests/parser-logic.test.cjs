@@ -31,6 +31,24 @@ test('German suggestions are bounded and do not interpret short fragments as wor
   assert.equal(parser.germanSearchSuggestionEntries(entries, 'Ha', 'https://www.verbformen.com/search/?w=Ha').length, 0);
 });
 
+test('compact candidate links support dictionary and query addresses without requiring a grammar summary', () => {
+  const links = [
+    ['Pommesbude, die', '/declension/nouns/Pommesbude.htm'],
+    ['die Pommesgabel', '/?w=Pommesgabel'],
+    ['Pommespreis', '/declension/nouns/?w=Pommespreis'],
+    ['Pommesbude', '/?w=Abend'],
+    ['Pommesbude', 'javascript:alert(1)'],
+    ['Pommesbude', 'https://evil.example/?w=Pommesbude'],
+    ['Pommesbude', '/search/?w=Pommesbude', true],
+    ['Conjugation', '/conjugation/'],
+  ].map(([textContent, href, navigation]) => ({ textContent, getAttribute: () => href, closest: () => navigation ? {} : null }));
+  const entries = parser.germanSearchLinkEntries({ querySelectorAll: () => links }, 'Pommes', 'https://www.verbformen.com/conjugation/?w=Pommes');
+  const found = parser.germanSearchSuggestionEntries(entries, 'Pommes', 'https://www.verbformen.com/conjugation/?w=Pommes');
+  assert.deepEqual(plain(found).map(entry => entry.lemma), ['Pommesbude', 'Pommesgabel', 'Pommespreis']);
+  assert.equal(found[0].partOfSpeech, 'noun');
+  assert.equal(found[0].meaning, '');
+});
+
 test('verb metadata keeps auxiliary and separability without accepting prose', () => {
   assert.deepEqual(plain(parser.parseGrammarSummary('A1 · irregular · haben · separable', 'Conjugation of German verb aufrufen')), {
     level: 'A1', partOfSpeech: 'verb', grammarTags: ['irregular', 'haben', 'separable'],
@@ -173,6 +191,16 @@ test('dictionary-page type links retain klein and das Klein without navigation o
   const found = plain(parser.extractWordTypeVariants({ querySelectorAll: () => links }, 'klein', 'adjective', 'https://www.verbformen.com/declension/adjectives/klein.htm'));
   assert.deepEqual(found.map(entry => [entry.lemma, entry.partOfSpeech]), [['klein', 'adjective'], ['Klein', 'noun']]);
   assert.equal(found[1].label, 'noun · das Klein');
+});
+
+test('comparison degrees share one adjective type identity while the noun remains separate', () => {
+  const adjective = url => ({ lemma: 'klein', partOfSpeech: 'adjective', label: 'adjective · klein', url: `https://www.verbformen.com/declension/adjectives/${url}.htm` });
+  const noun = { lemma: 'Klein', partOfSpeech: 'noun', label: 'noun · Klein', url: 'https://www.verbformen.com/declension/nouns/Klein.htm' };
+  const merged = parser.mergeEntryChoices([adjective('klein'), noun], [adjective('kleiner')], [adjective('kleinsten')]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].url, adjective('klein').url);
+  const current = parser.extractWordTypeVariants({ querySelectorAll: () => [] }, 'klein', 'adjective', adjective('kleiner').url, adjective('klein').url);
+  assert.equal(current[0].url, adjective('klein').url);
 });
 
 test('query pages use a source-linked current entry so users can return from another type', () => {

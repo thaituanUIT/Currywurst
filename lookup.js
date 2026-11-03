@@ -7,13 +7,14 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
   // Preserve the existing fallback allowance and reserve at most two extra
   // requests for word-form recovery instead of exhausting it on noun guesses.
   const requestLimit = 6 + Math.max(adjectiveCandidates.length, finiteVerbCandidates.length, regularVerbCandidates.length);
+  let allowConjugationSearch = false;
   const suggestions = new Map();
   let suggestionSourceUrl;
   const suggestedResult = () => suggestions.size ? { suggestions: { kind: "suggestions", query: word, entries: [...suggestions.values()], sourceUrl: suggestionSourceUrl } } : null;
   const load = async (url) => {
     signal.throwIfAborted();
     if (!cache.has(url)) {
-      if (cache.size >= requestLimit) return null;
+      if (cache.size >= requestLimit + Number(allowConjugationSearch)) return null;
       cache.set(url, loadPage(url).catch((error) => {
         if (error.status === 404) return null;
         throw error;
@@ -29,7 +30,7 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
       const full = await load(fullUrl);
       if (full) {
         const parsed = parseVerbformen(full.html, word, full.sourceUrl);
-        if (isGermanEntryMatch(parsed, word)) return { data: { ...parsed, variants: mergeNounVariants(parsed, data.variants || []), entryChoices: mergeEntryChoices(parsed.entryChoices, data.entryChoices) }, sourceUrl: full.sourceUrl };
+        if (isGermanEntryMatch(parsed, word)) return { data: { ...parsed, variants: mergeNounVariants(parsed, data.variants || []), entryChoices: mergeEntryChoices(parsed.entryChoices, data.entryChoices), relatedEntries: data.relatedEntries || [] }, sourceUrl: full.sourceUrl };
       }
     }
     return { data: { ...data, word }, sourceUrl };
@@ -41,12 +42,18 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     const cards = parseGermanSearchEntries(page.html, word, page.sourceUrl).sort((a, b) =>
       Number((b.lemma || b.data.lemma).toLocaleLowerCase("de-DE") === word.toLocaleLowerCase("de-DE"))
       - Number((a.lemma || a.data.lemma).toLocaleLowerCase("de-DE") === word.toLocaleLowerCase("de-DE")));
+    for (const entry of parseGermanSearchSuggestions(page.html, word, page.sourceUrl)) {
+      if (suggestions.size >= 8) break;
+      suggestions.set(entry.url, entry);
+      suggestionSourceUrl ||= page.sourceUrl;
+    }
+    const relatedEntries = [...suggestions.values()];
     const directMatch = isGermanEntryMatch(data, word);
     const entryChoices = mergeEntryChoices(directMatch ? data.entryChoices : [], cards.flatMap(entry => entry.data.entryChoices || []), cards.flatMap(entry => {
       const url = dictionaryEntryUrl(entry.detailUrl || entry.url, page.sourceUrl);
       return url ? [{ lemma: entry.data.lemma, partOfSpeech: entry.data.partOfSpeech, label: `${entry.data.partOfSpeech || "Entry"} · ${entry.label || entry.data.lemma}`, url }] : [];
     }));
-    if (directMatch) return completeEntry({ ...data, entryChoices }, page.sourceUrl);
+    if (directMatch) return completeEntry({ ...data, entryChoices, relatedEntries }, page.sourceUrl);
     const card = cards[0];
     if (card) {
       const variants = cards.filter((entry) => entry.data.lemma.toLowerCase() === card.data.lemma.toLowerCase()).flatMap((entry) => {
@@ -54,14 +61,9 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
         const url = dictionaryEntryUrl(entry.detailUrl || entry.url, page.sourceUrl);
         return article && url ? [{ article, label: `${article} ${entry.data.lemma}`, lemma: entry.data.lemma, url }] : [];
       });
-      const completed = await completeEntry({ ...card.data, variants: mergeNounVariants(card.data, variants) }, page.sourceUrl, card.detailUrl);
+      const completed = await completeEntry({ ...card.data, relatedEntries, variants: mergeNounVariants(card.data, variants) }, page.sourceUrl, card.detailUrl);
       completed.data.entryChoices = mergeEntryChoices(completed.data.entryChoices, entryChoices);
       return completed;
-    }
-    for (const entry of parseGermanSearchSuggestions(page.html, word, page.sourceUrl)) {
-      if (suggestions.size >= 8) break;
-      suggestions.set(entry.url, entry);
-      suggestionSourceUrl ||= page.sourceUrl;
     }
     return null;
   };
@@ -118,6 +120,13 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
   for (const candidate of germanImperativeCandidates(word)) {
     const found = await inspect(`https://www.verbformen.com/conjugation/?w=${encodeURIComponent(candidate)}&l=11`);
     // inspect still validates against the ORIGINAL selection, never the guess.
+    if (found) return found;
+  }
+  // Even a capitalized noun can have candidates only on the verb-search route.
+  // Reserve one request after normal recovery, without reducing its coverage.
+  if (nounSelection && !suggestions.size) {
+    allowConjugationSearch = true;
+    const found = await inspect(`https://www.verbformen.com/conjugation/?w=${encodeURIComponent(word)}&l=11`);
     if (found) return found;
   }
   return suggestedResult();

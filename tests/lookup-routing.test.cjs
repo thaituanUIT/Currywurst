@@ -16,7 +16,9 @@ function harness(respond) {
     isGermanEntryMatch: parser.isGermanEntryMatch,
     parseVerbformen: (html, word, sourceUrl) => ({ ...(html.entry || empty), word, sourceUrl }),
     parseGermanSearchEntries: (html, word) => (html.cards || []).filter(card => parser.isGermanEntryMatch(card.data, word)),
-    parseGermanSearchSuggestions: (html, word, sourceUrl) => parser.germanSearchSuggestionEntries(html.cards || [], word, sourceUrl),
+    parseGermanSearchSuggestions: (html, word, sourceUrl) => parser.germanSearchSuggestionEntries([
+      ...(html.cards || []), ...parser.germanSearchLinkEntries({ querySelectorAll: () => (html.links || []).map(([textContent, href]) => ({ textContent, getAttribute: () => href, closest: () => null })) }, word, sourceUrl),
+    ], word, sourceUrl),
   });
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   const load = async (address) => {
@@ -124,6 +126,26 @@ test('quick detection can return related candidates after a single request', asy
   assert.equal(h.calls.length, 1);
 });
 
+test('Pommes checks the conjugation search for compact candidates after noun routes fail', async () => {
+  for (const href of ['/declension/nouns/Pommesbude.htm', '/?w=Pommesbude']) {
+    const h = harness(url => url.pathname === '/conjugation/' && url.searchParams.get('w') === 'Pommes'
+      ? { html: { links: [['Pommesbude, die', href]] } } : {});
+    const found = await h.context.lookupGermanEntry('Pommes', h.load, h.signal);
+    assert.equal(found?.suggestions.entries[0].lemma, 'Pommesbude');
+    assert.equal(h.calls.at(-1).pathname, '/conjugation/');
+    assert.ok(h.calls.length <= 9);
+    assert.ok(h.calls.every(url => !url.pathname.endsWith('/Pommesbude.htm')));
+  }
+});
+
+test('an exact entry retains related search candidates and their links', async () => {
+  const data = { ...pommesCard('Pommes').data, meaning: 'fries' };
+  const h = harness(() => ({ html: { entry: data, links: [['Pommesbude, die', '/declension/nouns/Pommesbude.htm']] } }));
+  const found = await h.context.lookupGermanEntry('Pommes', h.load, h.signal);
+  assert.equal(found.data.lemma, 'Pommes');
+  assert.equal(found.data.relatedEntries[0].lemma, 'Pommesbude');
+});
+
 test('404 routes are skipped, while an aborted lookup sends no requests', async () => {
   const h = harness(url => {
     if (url.pathname === '/') throw Object.assign(new Error('not found'), { status: 404 });
@@ -176,7 +198,7 @@ test('noun recovery rejects guessed singulars that do not list the selected plur
   const h = harness(url => url.pathname === '/declension/nouns/Vokabel.htm' ? { html: { entry: { title: 'German noun Vokabel', lemma: 'Vokabel', meaning: 'word', headwordForms: ['Vokabels','Vokabel'], inflectionTables: [] } } } : {});
   const result = await h.context.lookupGermanEntry('Vokabeln', h.load, h.signal);
   assert.equal(result, null);
-  assert.ok(h.calls.length <= 6);
+  assert.ok(h.calls.length <= 7);
 });
 
 test('exact noun pages recover singulars before trying suffix guesses', async () => {
@@ -211,7 +233,7 @@ test('feminine plurals in -innen recover -in with source verification', async ()
 test('exact noun fallback rejects unrelated redirects and respects request limits', async () => {
   const h = harness(() => ({ html: { entry: { title: 'German noun Praktikant', lemma: 'Praktikant', meaning: 'intern', inflectionTables: [] } } }));
   assert.equal(await h.context.lookupGermanEntry('Praktikantin', h.load, h.signal), null);
-  assert.ok(h.calls.length <= 6);
+  assert.ok(h.calls.length <= 7);
 });
 
 const nationwide = {

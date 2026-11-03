@@ -14,9 +14,13 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
   const entryButton = makeElement({ entry: '0' });
   const variantButton = makeElement({ nounVariant: '1' });
-  let savedWordButtons = [], deleteButtons = [], degreeButtons = [], choiceButtons = [], nounButtons = [];
+  let savedWordButtons = [], deleteButtons = [], degreeButtons = [], choiceButtons = [], nounButtons = [], relatedButtons = [];
   elements['#result'].querySelectorAll = selector => {
     if (selector === '[data-entry]') return [entryButton];
+    if (selector === '[data-related-entry]') {
+      relatedButtons = [...elements['#result'].innerHTML.matchAll(/data-related-entry="(\d+)"/g)].map(match => makeElement({ relatedEntry: match[1] }));
+      return relatedButtons;
+    }
     if (selector === '[data-noun-variant]') {
       nounButtons = [...elements['#result'].innerHTML.matchAll(/data-noun-variant="(\d+)" aria-pressed="(true|false)"/g)].map(match => {
         const button = match[1] === '1' ? variantButton : makeElement({ nounVariant: match[1] });
@@ -70,6 +74,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
     parseEnglishResults: () => entries,
     isGermanEntryMatch: parserContext.isGermanEntryMatch,
     dictionaryEntryUrl: parserContext.dictionaryEntryUrl,
+    germanSearchLink: parserContext.germanSearchLink,
     normalizeGermanForm: parserContext.normalizeGermanForm,
     mergeEntryChoices: parserContext.mergeEntryChoices,
     parseGermanSearchEntries: () => [],
@@ -88,7 +93,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
   const respond = (index) => requests[index].resolve({ ok: true, text: async () => '', url: requests[index].url });
-  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons };
+  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons, relatedButtons: () => relatedButtons };
 }
 
 test('latest search wins and manual searches persist', async () => {
@@ -199,6 +204,44 @@ test('a suggested link redirecting to an unrelated word is rejected and keeps th
   assert.match(h.elements['#result'].innerHTML, /suggested entry could not be verified/);
   h.elements['#back-results'].listeners.click();
   assert.match(h.elements['#result'].innerHTML, /RELATED ENTRIES/);
+});
+
+test('query-only related links resolve the chosen candidate instead of parsing a search page as an entry', async () => {
+  const h = harness();
+  await tick();
+  const state = relatedPommesResults();
+  state.entries[0].url = 'https://www.verbformen.com/?w=Pommesbude';
+  const calls = [];
+  h.context.lookupGermanEntry = async word => {
+    calls.push(word);
+    return word === 'Pommes' ? { suggestions: state } : { data: germanEntry('Pommesbude', { title: 'German noun Pommesbude', meaning: 'chip shop', sourceUrl: relatedPommesResults().entries[0].url }), sourceUrl: relatedPommesResults().entries[0].url };
+  };
+  await h.context.runLookup('Pommes');
+  h.entryButton.listeners.click();
+  await tick();
+  assert.deepEqual(calls, ['Pommes', 'Pommesbude']);
+  assert.match(h.elements['#result'].innerHTML, /chip shop/);
+  assert.equal(h.requests.length, 0);
+});
+
+test('related candidates remain visible beside an exact word and open their complete entry', async () => {
+  const h = harness();
+  await tick();
+  const state = relatedPommesResults();
+  const sourceUrl = 'https://www.verbformen.com/declension/nouns/Pommes.htm';
+  h.context.lookupGermanEntry = async () => ({ data: germanEntry('Pommes', { meaning: 'fries', sourceUrl, relatedEntries: state.entries }), sourceUrl });
+  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Pommesbude', { word, sourceUrl, title: 'German noun Pommesbude', meaning: 'chip shop' });
+  await h.context.runLookup('Pommes');
+  assert.match(h.elements['#result'].innerHTML, /fries/);
+  assert.equal(h.relatedButtons().length, 1);
+  h.relatedButtons()[0].listeners.click();
+  assert.equal(h.requests[0].url, state.entries[0].url);
+  h.respond(0);
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /chip shop/);
+  h.elements['#back-results'].listeners.click();
+  assert.match(h.elements['#result'].innerHTML, /RELATED ENTRIES/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /No exact match/);
 });
 
 test('automatic detection prefers an English match over related German compounds', async () => {
@@ -719,6 +762,30 @@ test('a comparative page keeps its adjective type button selected', async () => 
   h.context.renderGermanEntry(germanEntry('klein', { word: 'kleiner', title: 'German adjective kleiner', partOfSpeech: 'adjective', sourceUrl: 'https://www.verbformen.com/declension/adjectives/kleiner.htm', entryChoices: kleinWordTypes() }));
   assert.equal(h.choiceButtons()[0].getAttribute('aria-pressed'), 'true');
   assert.equal(h.choiceButtons()[1].getAttribute('aria-pressed'), 'false');
+});
+
+test('switching klein degrees repeatedly keeps one adjective button and one noun button', async () => {
+  const h = harness();
+  await tick();
+  const entryChoices = kleinWordTypes();
+  const comparisonVariants = ['klein', 'kleiner', 'kleinsten'].map((form, index) => ({ form, degree: ['positive', 'comparative', 'superlative'][index], label: ['Positive', 'Comparative', 'Superlative'][index], url: `https://www.verbformen.com/declension/adjectives/${form}.htm` }));
+  const adjective = extra => germanEntry('klein', { title: 'German adjective klein', partOfSpeech: 'adjective', meaning: 'small', sourceUrl: entryChoices[0].url, entryChoices, comparisonVariants, ...extra });
+  h.context.renderGermanEntry(adjective());
+  h.context.parseVerbformen = (_, word, sourceUrl) => adjective({ word, sourceUrl, entryChoices: [{ ...entryChoices[0], url: sourceUrl }] });
+  for (const degree of [1, 2]) {
+    h.degreeButtons()[degree].listeners.click();
+    h.respond(degree - 1);
+    await tick();
+    assert.equal(h.choiceButtons().length, 2);
+    assert.equal(h.choiceButtons()[0].getAttribute('aria-pressed'), 'true');
+    assert.equal(h.degreeButtons()[degree].getAttribute('aria-pressed'), 'true');
+  }
+  for (const degree of [1, 0, 2, 0]) {
+    h.degreeButtons()[degree].listeners.click();
+    assert.equal(h.choiceButtons().length, 2);
+    assert.equal(h.degreeButtons()[degree].getAttribute('aria-pressed'), 'true');
+  }
+  assert.equal(h.requests.length, 2);
 });
 
 test('switching noun gender retains links to other word types', async () => {
