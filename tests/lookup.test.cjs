@@ -9,18 +9,14 @@ vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 function makeElement(dataset = {}) {
   return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; }, insertAdjacentHTML(position, html) { this.innerHTML += html; } };
 }
-function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null) {
+function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null) {
   const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry', '#lookup-tab', '#saved-tab', '#lookup-view', '#saved-view', '#saved-count', '#saved-list', '#saved-status', '#undo-delete', '#save-word', '#save-status'].map(id => [id, makeElement()]));
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
   const entryButton = makeElement({ entry: '0' });
   const variantButton = makeElement({ nounVariant: '1' });
-  let savedWordButtons = [], deleteButtons = [], degreeButtons = [], choiceButtons = [], nounButtons = [], relatedButtons = [];
+  let savedWordButtons = [], deleteButtons = [], degreeButtons = [], choiceButtons = [], nounButtons = [];
   elements['#result'].querySelectorAll = selector => {
     if (selector === '[data-entry]') return [entryButton];
-    if (selector === '[data-related-entry]') {
-      relatedButtons = [...elements['#result'].innerHTML.matchAll(/data-related-entry="(\d+)"/g)].map(match => makeElement({ relatedEntry: match[1] }));
-      return relatedButtons;
-    }
     if (selector === '[data-noun-variant]') {
       nounButtons = [...elements['#result'].innerHTML.matchAll(/data-noun-variant="(\d+)" aria-pressed="(true|false)"/g)].map(match => {
         const button = match[1] === '1' ? variantButton : makeElement({ nounVariant: match[1] });
@@ -74,15 +70,14 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
     parseEnglishResults: () => entries,
     isGermanEntryMatch: parserContext.isGermanEntryMatch,
     dictionaryEntryUrl: parserContext.dictionaryEntryUrl,
-    germanSearchLink: parserContext.germanSearchLink,
     normalizeGermanForm: parserContext.normalizeGermanForm,
     mergeEntryChoices: parserContext.mergeEntryChoices,
     parseGermanSearchEntries: () => [],
-    parseGermanSearchSuggestions: () => [],
     parseVerbformen: (_, word) => ({ word, lemma: word, title: `Noun ${word}`, ipa: [], audio: [], inflectionTables: [], meaning: word }),
   });
   vm.runInContext(fs.readFileSync('saved-words.js', 'utf8'), context);
   context.createEnglishMeaningFallback = () => meaningLookup;
+  context.createBasicTranslationFallback = () => basicLookup;
   const store = context.createSavedWordsStore(context.chrome.storage.local);
   context.chrome.runtime = { sendMessage: async message => {
     try {
@@ -93,7 +88,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
   const respond = (index) => requests[index].resolve({ ok: true, text: async () => '', url: requests[index].url });
-  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons, relatedButtons: () => relatedButtons };
+  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons };
 }
 
 test('latest search wins and manual searches persist', async () => {
@@ -165,112 +160,102 @@ test('opening grammar and returning uses the English result list without refetch
   assert.equal(h.saved.at(-1).lookupWord, 'small');
 });
 
-function relatedPommesResults() {
-  return { kind: 'suggestions', query: 'Pommes', sourceUrl: 'https://www.verbformen.com/?w=Pommes&l=11',
-    entries: [{ lemma: 'Pommesbude', label: 'die Pommesbude', partOfSpeech: 'noun', meaning: 'chip shop', url: 'https://www.verbformen.com/declension/nouns/Pommesbude.htm' }] };
-}
 
-test('related candidates stay in German mode and open only after selection, with a cached back list', async () => {
-  const h = harness();
-  await tick();
-  h.context.lookupGermanEntry = async () => ({ suggestions: relatedPommesResults() });
-  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Pommesbude', { word, sourceUrl, title: 'German noun Pommesbude', meaning: 'chip shop' });
-  await h.context.runLookup('Pommes');
-  assert.match(h.elements['#result'].innerHTML, /RELATED ENTRIES/);
-  assert.match(h.elements['#result'].innerHTML, /No exact match/);
-  assert.doesNotMatch(h.elements['#result'].innerHTML, /en-GB|id="save-word"/);
-  assert.equal(h.requests.length, 0);
-  const list = h.elements['#result'].innerHTML;
-  h.entryButton.listeners.click();
-  assert.equal(h.requests[0].url, relatedPommesResults().entries[0].url);
-  h.respond(0);
-  await tick();
-  assert.match(h.elements['#result'].innerHTML, /chip shop/);
-  assert.match(h.elements['#result'].innerHTML, /Back to results/);
-  h.elements['#back-results'].listeners.click();
-  assert.equal(h.elements['#result'].innerHTML, list);
-  assert.equal(h.requests.length, 1);
-});
-
-test('a suggested link redirecting to an unrelated word is rejected and keeps the back list', async () => {
-  const h = harness();
-  await tick();
-  h.context.lookupGermanEntry = async () => ({ suggestions: relatedPommesResults() });
-  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Abend', { word, sourceUrl, title: 'German noun Abend' });
-  await h.context.runLookup('Pommes');
-  h.entryButton.listeners.click();
-  h.respond(0);
-  await tick();
-  assert.match(h.elements['#result'].innerHTML, /suggested entry could not be verified/);
-  h.elements['#back-results'].listeners.click();
-  assert.match(h.elements['#result'].innerHTML, /RELATED ENTRIES/);
-});
-
-test('query-only related links resolve the chosen candidate instead of parsing a search page as an entry', async () => {
-  const h = harness();
-  await tick();
-  const state = relatedPommesResults();
-  state.entries[0].url = 'https://www.verbformen.com/?w=Pommesbude';
+test('a missing Pommes entry shows a basic translation, audio, and saved provider without grammar or related entries', async () => {
   const calls = [];
-  h.context.lookupGermanEntry = async word => {
-    calls.push(word);
-    return word === 'Pommes' ? { suggestions: state } : { data: germanEntry('Pommesbude', { title: 'German noun Pommesbude', meaning: 'chip shop', sourceUrl: relatedPommesResults().entries[0].url }), sourceUrl: relatedPommesResults().entries[0].url };
-  };
+  const h = harness({}, {}, async () => null, async (word, signal) => {
+    calls.push({ word, signal });
+    return { meaning: 'French fries', meaningSource: { provider: 'MyMemory', url: 'https://mymemory.translated.net/' } };
+  });
+  await tick();
+  h.context.lookupGermanEntry = async () => null;
   await h.context.runLookup('Pommes');
-  h.entryButton.listeners.click();
+  assert.equal(calls[0].word, 'Pommes');
+  assert.match(h.elements['#result'].innerHTML, /French fries/);
+  assert.match(h.elements['#result'].innerHTML, /Basic translation · grammar unavailable/);
+  assert.match(h.elements['#result'].innerHTML, /data-speak="Pommes"/);
+  assert.match(h.elements['#result'].innerHTML, /Translation from.*MyMemory/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /inflection-grid|Related entries|RELATED ENTRIES|CC BY-SA/);
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].lemma, 'Pommes');
+  assert.equal(h.savedState.savedWords[0].meaningSource.provider, 'MyMemory');
+  assert.equal(h.savedState.savedWords[0].partOfSpeech, '');
+  h.elements['#saved-tab'].listeners.click();
   await tick();
-  assert.deepEqual(calls, ['Pommes', 'Pommesbude']);
-  assert.match(h.elements['#result'].innerHTML, /chip shop/);
-  assert.equal(h.requests.length, 0);
+  assert.match(h.elements['#saved-list'].innerHTML, /MyMemory/);
 });
 
-test('related candidates remain visible beside an exact word and open their complete entry', async () => {
-  const h = harness();
+test('a verified dictionary entry does not call the basic translation service', async () => {
+  let calls = 0;
+  const h = harness({}, {}, async () => null, async () => { calls++; });
   await tick();
-  const state = relatedPommesResults();
-  const sourceUrl = 'https://www.verbformen.com/declension/nouns/Pommes.htm';
-  h.context.lookupGermanEntry = async () => ({ data: germanEntry('Pommes', { meaning: 'fries', sourceUrl, relatedEntries: state.entries }), sourceUrl });
-  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Pommesbude', { word, sourceUrl, title: 'German noun Pommesbude', meaning: 'chip shop' });
+  h.context.lookupGermanEntry = async () => ({ data: germanEntry('Haus'), sourceUrl: 'https://www.verbformen.com/declension/nouns/Haus.htm' });
+  await h.context.runLookup('Haus');
+  assert.equal(calls, 0);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /Basic translation/);
+});
+
+test('Verbformen connection errors can use the basic fallback, while unavailable services show no fabricated result', async () => {
+  const h = harness({}, {}, async () => null, async () => ({ meaning: 'French fries', meaningSource: { provider: 'MyMemory', url: 'https://mymemory.translated.net/' } }));
+  await tick();
+  h.context.lookupGermanEntry = async () => { throw new Error('Verbformen returned HTTP 503'); };
   await h.context.runLookup('Pommes');
-  assert.match(h.elements['#result'].innerHTML, /fries/);
-  assert.equal(h.relatedButtons().length, 1);
-  h.relatedButtons()[0].listeners.click();
-  assert.equal(h.requests[0].url, state.entries[0].url);
-  h.respond(0);
+  assert.match(h.elements['#result'].innerHTML, /French fries/);
+  const missing = harness();
   await tick();
-  assert.match(h.elements['#result'].innerHTML, /chip shop/);
-  h.elements['#back-results'].listeners.click();
-  assert.match(h.elements['#result'].innerHTML, /RELATED ENTRIES/);
-  assert.doesNotMatch(h.elements['#result'].innerHTML, /No exact match/);
+  missing.context.lookupGermanEntry = async () => null;
+  await missing.context.runLookup('unknownword');
+  assert.match(missing.elements['#result'].innerHTML, /No dictionary entry or translation found/);
+  assert.doesNotMatch(missing.elements['#result'].innerHTML, /id="save-word"/);
 });
 
-test('automatic detection prefers an English match over related German compounds', async () => {
-  const h = harness();
+test('a late basic translation cannot replace another word or survive a direction switch', async () => {
+  let finish, signal;
+  const h = harness({}, {}, async () => null, (word, pendingSignal) => { signal = pendingSignal; return new Promise(resolve => { finish = resolve; }); });
   await tick();
-  h.context.lookupGermanEntry = async () => ({ suggestions: relatedPommesResults() });
-  const lookup = h.context.runLookup('Pommes', null, { automatic: true, hint: 'de' });
+  h.context.lookupGermanEntry = async () => null;
+  const old = h.context.runLookup('Pommes');
   await tick();
-  h.respond(0); // English search form
+  assert.match(h.elements['#result'].innerHTML, /Finding a translation/);
+  h.context.lookupGermanEntry = async () => ({ data: germanEntry('Haus'), sourceUrl: 'https://www.verbformen.com/declension/nouns/Haus.htm' });
+  await h.context.runLookup('Haus');
+  finish({ meaning: 'French fries' });
+  await old;
+  assert.equal(signal.aborted, true);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /French fries/);
+  h.context.lookupGermanEntry = async () => null;
+  const pending = h.context.runLookup('Pommes');
   await tick();
-  h.respond(1);
-  await lookup;
-  assert.match(h.elements['#result'].innerHTML, /ENGLISH → GERMAN/);
-  assert.doesNotMatch(h.elements['#result'].innerHTML, /RELATED ENTRIES/);
+  h.elements['#mode-toggle'].listeners.click();
+  finish({ meaning: 'French fries' });
+  await pending;
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /French fries/);
 });
 
-test('automatic detection offers related candidates when neither language has an exact match', async () => {
-  const h = harness();
+test('automatic lookup uses the basic fallback only after German and English dictionary matching fail', async () => {
+  let calls = 0;
+  const h = harness({}, {}, async () => null, async () => { calls++; return { meaning: 'French fries' }; });
   await tick();
+  h.context.lookupGermanEntry = async () => null;
   h.context.parseEnglishResults = () => [];
-  h.context.lookupGermanEntry = async () => ({ suggestions: relatedPommesResults() });
-  const lookup = h.context.runLookup('Pommes', null, { automatic: true, hint: 'de' });
+  const pending = h.context.runLookup('Pommes', null, { automatic: true, hint: 'de' });
   await tick();
   h.respond(0);
   await tick();
   h.respond(1);
-  await lookup;
-  assert.match(h.elements['#result'].innerHTML, /RELATED ENTRIES/);
+  await pending;
+  assert.equal(calls, 1);
+  assert.match(h.elements['#result'].innerHTML, /French fries/);
   assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^German to English/);
+});
+
+test('basic translation output is escaped before rendering', async () => {
+  const h = harness({}, {}, async () => null, async () => ({ meaning: '<img src=x onerror=alert(1)>' }));
+  await tick();
+  h.context.lookupGermanEntry = async () => null;
+  await h.context.runLookup('Pommes');
+  assert.match(h.elements['#result'].innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /<img/);
 });
 
 test('browser restart restores the saved word and mode without replaying a lookup', async () => {

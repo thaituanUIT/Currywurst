@@ -128,3 +128,14 @@ test('saved definition attribution rejects hostile URLs and normalizes the licen
   ({ words } = await h.store.add(entry('second', { meaningSource: { provider: 'Wiktionary', url: 'https://en.wiktionary.org/wiki/Lernende', licenseUrl: 'https://evil.example/' } })));
   assert.equal(words.find(word => word.lemma === 'second').meaningSource.licenseUrl, 'https://creativecommons.org/licenses/by-sa/4.0/');
 });
+
+test('saved basic translations retain MyMemory attribution without a Wiktionary license or arbitrary source URL', async () => {
+  const h = harness();
+  const meaningSource = { provider: 'MyMemory', url: 'https://mymemory.translated.net/' };
+  const { words } = await h.store.add(entry('Pommes', { partOfSpeech: '', meaning: 'French fries', meaningSource: { ...meaningSource, license: 'CC BY-SA 4.0', licenseUrl: 'https://evil.example/' } }));
+  assert.deepEqual(clone(words[0].meaningSource), meaningSource);
+  const restored = await h.context.createSavedWordsStore(h.storage).list();
+  assert.equal(restored.words[0].meaningSource.provider, 'MyMemory');
+  const invalid = h.context.savedWordRecord(entry('other', { meaningSource: { provider: 'MyMemory', url: 'https://evil.example/' } }));
+  assert.equal(invalid.meaningSource, undefined);
+});

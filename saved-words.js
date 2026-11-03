@@ -26,6 +26,9 @@ function savedWordRecord(entry, savedAt = Date.now()) {
 }
 
 function safeMeaningSource(value) {
+  if (value?.provider === "MyMemory" && value.url === "https://mymemory.translated.net/") {
+    return { provider: "MyMemory", url: "https://mymemory.translated.net/" };
+  }
   if (value?.provider !== "Wiktionary") return null;
   try {
     const url = new URL(value.url);

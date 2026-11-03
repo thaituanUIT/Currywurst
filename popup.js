@@ -12,6 +12,7 @@ let englishForm;
 let activeMeaningController;
 const tabEntryCache = new Map();
 const findEnglishMeaning = createEnglishMeaningFallback({ storage: chrome.storage.session });
+const findBasicTranslation = createBasicTranslationFallback({ storage: chrome.storage.session });
 let view = "lookup";
 let currentEntry;
 let savedWords = [];
@@ -264,6 +265,7 @@ function stopMeaningLookup() {
 function meaningAttribution(value) {
   const source = safeMeaningSource(value);
   if (!source) return "";
+  if (source.provider === "MyMemory") return `<p class="meaning-source">Translation from <a href="${source.url}" target="_blank" rel="noreferrer">MyMemory</a></p>`;
   return `<p class="meaning-source">Meaning from <a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Wiktionary</a> · <a href="${escapeHtml(source.licenseUrl)}" target="_blank" rel="noreferrer">CC BY-SA 4.0</a></p>`;
 }
 
@@ -345,7 +347,6 @@ async function searchEnglish(word, controller) {
 
 async function detectAndLookup(word, hint, preferredMode, controller) {
   const cache = new Map();
-  let suggestions;
   const loadPage = (url) => fetchPage(url, controller);
   const firstMode = /[äöüß]/i.test(word) ? "de-en" : hint === "en" ? "en-de" : hint === "de" ? "de-en" : preferredMode;
   const directions = [firstMode, firstMode === "de-en" ? "en-de" : "de-en"];
@@ -353,8 +354,7 @@ async function detectAndLookup(word, hint, preferredMode, controller) {
     controller.signal.throwIfAborted();
     if (direction === "de-en") {
       const found = await lookupGermanEntry(word, loadPage, controller.signal, { recover: hint === "de", cache });
-      if (found?.suggestions) suggestions = { mode: direction, ...found };
-      else if (found) return { mode: direction, ...found };
+      if (found) return { mode: direction, ...found };
     } else {
       const page = await searchEnglish(word, controller);
       controller.signal.throwIfAborted();
@@ -363,7 +363,7 @@ async function detectAndLookup(word, hint, preferredMode, controller) {
     }
   }
   const recovered = await lookupGermanEntry(word, loadPage, controller.signal, { cache });
-  return recovered ? { mode: "de-en", ...recovered } : suggestions || null;
+  return recovered ? { mode: "de-en", ...recovered } : null;
 }
 
 async function runLookup(word, detail = null, options = {}) {
@@ -375,10 +375,24 @@ async function runLookup(word, detail = null, options = {}) {
   saveError = "";
   cancelLookup();
   const sequence = lookupSequence;
+  let translationAttempted = false;
   const controller = new AbortController();
   activeController = controller;
   const requestedMode = mode;
   const timeout = setTimeout(() => controller.abort(), options.automatic ? 25000 : 15000);
+  const showBasicTranslation = async () => {
+    translationAttempted = true;
+    result.innerHTML = '<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>Finding a translation…</span></div>';
+    const translation = await findBasicTranslation(word, controller.signal);
+    if (sequence !== lookupSequence || !translation) return false;
+    setMode("de-en");
+    if (options.automatic) chrome.storage.local.set({ lookupMode: "de-en" }).catch(() => {});
+    const sourceUrl = `https://www.verbformen.com/?w=${encodeURIComponent(word)}&l=11`;
+    sourceLink.href = sourceUrl;
+    renderGermanEntry({ word, lemma: word, title: word, ...translation, basicTranslation: true,
+      sourceUrl, ipa: [], audio: [], partOfSpeech: "", grammarTags: [], inflectionTables: [] });
+    return true;
+  };
   if (!detail) chrome.storage.local.set(options.automatic
     ? { lookupWord: word }
     : { lookupWord: word, lookupMode: mode }).catch(() => {});
@@ -391,12 +405,13 @@ async function runLookup(word, detail = null, options = {}) {
       const match = await detectAndLookup(word, options.hint, requestedMode, controller);
       if (sequence !== lookupSequence) return;
       if (!match) {
-        result.innerHTML = '<p class="muted">No matching German or English entry found. Try another spelling or choose a direction using the language button above.</p>';
+        if (await showBasicTranslation() || sequence !== lookupSequence) return;
+        result.innerHTML = '<p class="muted">No dictionary entry or translation found. Try another spelling or choose a direction using the language button above.</p>';
         return;
       }
       setMode(match.mode);
       chrome.storage.local.set({ lookupMode: match.mode }).catch(() => {});
-      if (match.state || match.suggestions) renderSearchResults(match.state || match.suggestions);
+      if (match.state) renderSearchResults(match.state);
       else {
         sourceLink.href = match.sourceUrl;
         renderGermanEntry(match.data);
@@ -407,10 +422,9 @@ async function runLookup(word, detail = null, options = {}) {
       if (sequence !== lookupSequence) return;
       renderSearchResults({ query: word, entries, sourceUrl: page.sourceUrl });
     } else {
-      if (detail?.candidateEntry && !germanSearchLink(detail.entry.url, sourceLink.href)) throw new Error("This suggested link could not be verified.");
       let found;
       if (cached) found = { data: { ...cached, word }, sourceUrl: cached.sourceUrl };
-      else if (!detail || (detail.candidateEntry && !dictionaryEntryUrl(detail.entry.url, detail.entry.url))) {
+      else if (!detail) {
         found = await lookupGermanEntry(word, (url) => fetchPage(url, controller), controller.signal);
       } else {
         const page = await fetchPage(fullDictionaryEntryUrl(detail.entry.url, detail.entry.url) || detail.entry.url, controller);
@@ -421,25 +435,24 @@ async function runLookup(word, detail = null, options = {}) {
       if (detail?.variantKind && found && (!isGermanEntryMatch(found.data, detail.variantKind === "entry" ? detail.entry.lemma : word)
         || (detail.variantKind === "entry" && found.data.partOfSpeech !== detail.entry.partOfSpeech))) throw new Error("This entry could not be verified.");
       if (detail?.savedEntry && found && !isGermanEntryMatch(found.data, word)) throw new Error("This saved word could not be found.");
-      if (detail?.candidateEntry && (!found?.data || !isGermanEntryMatch(found.data, detail.entry.lemma))) throw new Error("This suggested entry could not be verified.");
       if (!found) {
-        result.innerHTML = '<p class="muted">No matching German entry found. Try another spelling or switch to EN → DE.</p>';
-        return;
-      }
-      if (found.suggestions) {
-        renderSearchResults(found.suggestions);
+        if (!detail && (await showBasicTranslation() || sequence !== lookupSequence)) return;
+        result.innerHTML = '<p class="muted">No dictionary entry or translation found. Try another spelling or switch to EN → DE.</p>';
         return;
       }
       sourceLink.href = found.sourceUrl;
       if (detail?.previousData) {
         found.data.entryChoices = mergeEntryChoices(detail.previousData.entryChoices, found.data.entryChoices);
-        found.data.relatedEntries = detail.previousData.relatedEntries;
         if (detail.variantKind === "comparison" && !found.data.comparisonVariants?.length) found.data.comparisonVariants = detail.previousData.comparisonVariants;
       }
       renderGermanEntry(found.data, detail?.backState);
     }
   } catch (error) {
     if (sequence !== lookupSequence) return;
+    if (!detail && !translationAttempted && !controller.signal.aborted && (requestedMode === "de-en" || options.automatic)) {
+      try { if (await showBasicTranslation()) return; } catch { /* Keep the original lookup error if fallback is unavailable. */ }
+      if (sequence !== lookupSequence) return;
+    }
     if (detail?.previousData) {
       sourceLink.href = detail.previousData.sourceUrl;
       renderGermanEntry(detail.previousData, detail.backState, detail.variantKind ? "Could not load this entry. Please try again." : "Could not load this noun variant. Please try again.");
@@ -487,10 +500,8 @@ function renderSearchResults(state) {
   currentEntry = undefined;
   sourceLink.href = state.sourceUrl;
   result.scrollTop = 0;
-  const related = ["suggestions", "related"].includes(state.kind);
-  const description = related ? `${state.kind === "suggestions" ? "No exact match. " : ""}Choose a related entry.`
-    : state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"} · choose one to see its forms` : "No German matches found. Try another word or check Verbformen below.";
-  result.innerHTML = `<div class="result-head"><div><p class="eyebrow">${related ? "RELATED ENTRIES" : "ENGLISH → GERMAN"}</p><h1 class="word-title">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, related ? "de-DE" : "en-GB")}</div><p class="results-count muted">${description}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="Open grammar for ${escapeHtml(entry.label)}"><span class="translation-word">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(entry.partOfSpeech)}</span>` : ""}<span class="translation-meaning">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? "Forms & grammar" : "View meaning"} ${uiIcon("arrow-up-right")}</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
+  const description = state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"} · choose one to see its forms` : "No German matches found. Try another word or check Verbformen below.";
+  result.innerHTML = `<div class="result-head"><div><p class="eyebrow">ENGLISH → GERMAN</p><h1 class="word-title">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, "en-GB")}</div><p class="results-count muted">${description}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="Open grammar for ${escapeHtml(entry.label)}"><span class="translation-word">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(entry.partOfSpeech)}</span>` : ""}<span class="translation-meaning">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? "Forms & grammar" : "View meaning"} ${uiIcon("arrow-up-right")}</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
   result.querySelectorAll("[data-entry]").forEach((button) => button.addEventListener("click", () => {
     const entry = state.entries[Number(button.dataset.entry)];
     if (entry.data && !entry.detailUrl) {
@@ -499,7 +510,7 @@ function renderSearchResults(state) {
       sourceLink.href = entry.url;
       result.scrollTop = 0;
       renderGermanEntry(entry.data, state);
-    } else runLookup(entry.lemma, { entry, backState: state, candidateEntry: related });
+    } else runLookup(entry.lemma, { entry, backState: state });
   }));
   bindPronunciation();
 }
@@ -527,14 +538,9 @@ function renderGermanEntry(data, backState, message = "") {
   const selectedChoiceByUrl = choices.findIndex(entry => new URL(entry.url).pathname === sourcePath);
   const selectedChoice = selectedChoiceByUrl >= 0 ? selectedChoiceByUrl : choices.findIndex(entry => entry.partOfSpeech === data.partOfSpeech && normalizeGermanForm(entry.lemma) === normalizeGermanForm(data.lemma));
   const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 ? `<div class="noun-variants" role="group" aria-label="Dictionary entries">${choices.map((entry, index) => `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${index === selectedChoice}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
-  const relatedEntries = data.relatedEntries || [];
-  const related = relatedEntries.length ? `<section class="related-entries"><p class="eyebrow">Related entries</p><div class="noun-variants">${relatedEntries.map((entry, index) => `<button type="button" class="noun-variant" data-related-entry="${index}">${escapeHtml(entry.label || entry.lemma)}</button>`).join("")}</div></section>` : "";
   const meaning = data.meaning || (data.meaningState === "unavailable" ? "English meaning unavailable." : "Finding English meaning…");
-  result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss">${escapeHtml(meaning)}</p>${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${related}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
-  result.querySelectorAll("[data-related-entry]").forEach(button => button.addEventListener("click", () => {
-    const entry = relatedEntries[Number(button.dataset.relatedEntry)];
-    runLookup(entry.lemma, { entry, candidateEntry: true, backState: { kind: "related", query: data.word, entries: relatedEntries, sourceUrl: data.sourceUrl } });
-  }));
+  const translationNote = data.basicTranslation ? '<p class="muted">Basic translation · grammar unavailable.</p>' : "";
+  result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss">${escapeHtml(meaning)}</p>${translationNote}${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
   for (const [selector, entries, variantKind] of [["[data-degree]", degrees, "comparison"], ["[data-entry-choice]", choices, "entry"]]) {
     result.querySelectorAll(selector).forEach(button => button.addEventListener("click", () => {
       if (button.getAttribute("aria-pressed") === "true") return;

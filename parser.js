@@ -482,64 +482,6 @@ function parseGermanSearchEntries(html, query, sourceUrl) {
   return parseSearchCards(html, sourceUrl).filter((entry) => isGermanEntryMatch({ ...entry.data, sourceUrl: entry.detailUrl || entry.url }, query));
 }
 
-function parseGermanSearchSuggestions(html, query, sourceUrl) {
-  const doc = parseDictionaryDocument(html);
-  return germanSearchSuggestionEntries([...parseSearchCards(html, sourceUrl), ...germanSearchLinkEntries(doc, query, sourceUrl)], query, sourceUrl);
-}
-
-function germanSearchLink(href, sourceUrl) {
-  const direct = dictionaryEntryUrl(href, sourceUrl);
-  if (direct) return direct;
-  try {
-    const url = new URL(href, sourceUrl);
-    return url.origin === "https://www.verbformen.com"
-      && /^\/(?:search\/|conjugation\/|declension\/(?:nouns|adjectives|pronouns|articles)\/)?$/.test(url.pathname)
-      && /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u.test(url.searchParams.get("w") || "") ? url.href : null;
-  } catch { return null; }
-}
-
-function germanSearchLinkEntries(doc, query, sourceUrl) {
-  const selected = normalizeGermanForm(query);
-  return [...doc.querySelectorAll("a[href]")].flatMap(link => {
-    if (link.closest("nav,header,footer")) return [];
-    const url = germanSearchLink(link.getAttribute("href"), sourceUrl);
-    if (!url) return [];
-    const label = cleanHeadword(link.textContent).replace(/^(?:noun|verb|adjective|pronoun|article)\s+/i, "");
-    const lemma = label.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "");
-    if (!/^[\p{L}]+(?:[ '-][\p{L}]+)*$/u.test(lemma) || !normalizeGermanForm(lemma).includes(selected)) return [];
-    const queryWord = new URL(url).searchParams.get("w");
-    if (!dictionaryEntryUrl(url, sourceUrl) && normalizeGermanForm(queryWord) !== normalizeGermanForm(lemma)) return [];
-    const path = new URL(url).pathname;
-    const partOfSpeech = path.startsWith("/declension/nouns/") ? "noun" : path.startsWith("/declension/adjectives/") ? "adjective"
-      : path.startsWith("/declension/pronouns/") ? "pronoun" : path.startsWith("/declension/articles/") ? "article"
-      : path.startsWith("/conjugation/") && dictionaryEntryUrl(url, sourceUrl) ? "verb" : "";
-    return [{ lemma, label, partOfSpeech, meaning: "", url }];
-  });
-}
-
-function germanSearchSuggestionEntries(entries, query, sourceUrl) {
-  let page;
-  try { page = new URL(sourceUrl); } catch { return []; }
-  const selected = normalizeGermanForm(query);
-  // Only suggestions returned for this exact query may be offered. Guessed
-  // recovery routes and related links on dictionary pages are not search results.
-  if (page.origin !== "https://www.verbformen.com"
-    || !/^\/(?:search\/|conjugation\/|declension\/(?:nouns|adjectives|pronouns|articles)\/)?$/.test(page.pathname)
-    || normalizeGermanForm(page.searchParams.get("w") || "") !== selected
-    || !/^[\p{L}][\p{L} '-]{2,59}$/u.test(selected)) return [];
-  const seen = new Set();
-  return entries.flatMap(entry => {
-    const url = germanSearchLink(entry.detailUrl || entry.url, sourceUrl);
-    const lemma = normalizeGermanForm(entry.lemma);
-    // A compound such as Pommesbude is related to Pommes, not its base form.
-    // Keep it selectable without weakening the exact/form matching rules.
-    if (!url || seen.has(url) || lemma === selected || !lemma.includes(selected)
-      || isGermanEntryMatch({ ...entry.data, sourceUrl: url }, query)) return [];
-    seen.add(url);
-    return [{ lemma: entry.lemma, label: entry.label || entry.lemma, partOfSpeech: entry.partOfSpeech, meaning: entry.meaning || "", url }];
-  }).slice(0, 8);
-}
-
 function nounArticleFromTags(tags = []) {
   for (const tag of tags) {
     if (tag === "feminine") return "die";
