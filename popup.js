@@ -121,7 +121,7 @@ async function saveCurrentWord() {
 function renderSavedWords() {
   const words = savedWords;
   savedList.innerHTML = !savedReady ? `<p class="muted">${escapeHtml(savedLoadError || "Loading saved words…")}</p>`
-    : !words.length ? '<p class="hint">No saved words yet. Save a word after looking it up.</p>'
+    : !words.length ? '<p class="hint">No saved words yet.</p>'
     : words.map((word, index) => {
       const label = word.article ? `${word.article} ${word.lemma}` : word.lemma;
       return `<article class="saved-row" role="listitem"><div class="saved-word-block"><button class="saved-word" data-saved-word="${index}"><span lang="de">${escapeHtml(label)}</span><span class="saved-meaning">${escapeHtml(word.meaning)}</span></button>${meaningAttribution(word.meaningSource)}</div><button class="delete-word" data-delete-word="${index}" aria-label="Delete ${escapeHtml(label)}" title="Delete word" ${savedBusy ? "disabled" : ""}>${uiIcon("close")}</button></article>`;
@@ -173,7 +173,7 @@ async function undoDelete() {
     clearTimeout(undoTimer);
     removedWord = undefined;
     undoButton.hidden = true;
-    setSavedStatus("Word restored.");
+    setSavedStatus("");
   } catch (error) {
     setSavedStatus(error.message, true);
   } finally {
@@ -458,7 +458,7 @@ async function runLookup(word, detail = null, options = {}) {
       renderGermanEntry(detail.previousData, detail.backState, detail.variantKind ? "Could not load this entry. Please try again." : "Could not load this noun variant. Please try again.");
       return;
     }
-    result.innerHTML = `${detail?.backState ? backButton() : ""}<p class="error">${escapeHtml(controller.signal.aborted ? "Lookup timed out. Please try again." : error.message)}</p><p class="muted">You can also open the dictionary using the source link below.</p><button id="retry">Retry</button>`;
+    result.innerHTML = `${detail?.backState ? backButton() : ""}<p class="error">${escapeHtml(controller.signal.aborted ? "Lookup timed out. Please try again." : error.message)}</p><button id="retry">Retry</button>`;
     document.querySelector("#retry").addEventListener("click", () => runLookup(word, detail, options));
     if (detail?.backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderSearchResults(detail.backState); });
   } finally {
@@ -500,7 +500,7 @@ function renderSearchResults(state) {
   currentEntry = undefined;
   sourceLink.href = state.sourceUrl;
   result.scrollTop = 0;
-  const description = state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"} · choose one to see its forms` : "No German matches found. Try another word or check Verbformen below.";
+  const description = state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"}` : "No German matches found.";
   result.innerHTML = `<div class="result-head"><div><p class="eyebrow">ENGLISH → GERMAN</p><h1 class="word-title">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, "en-GB")}</div><p class="results-count muted">${description}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="Open grammar for ${escapeHtml(entry.label)}"><span class="translation-word">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(entry.partOfSpeech)}</span>` : ""}<span class="translation-meaning">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? "Forms & grammar" : "View meaning"} ${uiIcon("arrow-up-right")}</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
   result.querySelectorAll("[data-entry]").forEach((button) => button.addEventListener("click", () => {
     const entry = state.entries[Number(button.dataset.entry)];
@@ -539,8 +539,7 @@ function renderGermanEntry(data, backState, message = "") {
   const selectedChoice = selectedChoiceByUrl >= 0 ? selectedChoiceByUrl : choices.findIndex(entry => entry.partOfSpeech === data.partOfSpeech && normalizeGermanForm(entry.lemma) === normalizeGermanForm(data.lemma));
   const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 ? `<div class="noun-variants" role="group" aria-label="Dictionary entries">${choices.map((entry, index) => `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${index === selectedChoice}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
   const meaning = data.meaning || (data.meaningState === "unavailable" ? "English meaning unavailable." : "Finding English meaning…");
-  const translationNote = data.basicTranslation ? '<p class="muted">Basic translation · grammar unavailable.</p>' : "";
-  result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss">${escapeHtml(meaning)}</p>${translationNote}${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
+  result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss">${escapeHtml(meaning)}</p>${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
   for (const [selector, entries, variantKind] of [["[data-degree]", degrees, "comparison"], ["[data-entry-choice]", choices, "entry"]]) {
     result.querySelectorAll(selector).forEach(button => button.addEventListener("click", () => {
       if (button.getAttribute("aria-pressed") === "true") return;

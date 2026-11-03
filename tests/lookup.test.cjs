@@ -172,7 +172,7 @@ test('a missing Pommes entry shows a basic translation, audio, and saved provide
   await h.context.runLookup('Pommes');
   assert.equal(calls[0].word, 'Pommes');
   assert.match(h.elements['#result'].innerHTML, /French fries/);
-  assert.match(h.elements['#result'].innerHTML, /Basic translation · grammar unavailable/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /Basic translation|grammar unavailable/);
   assert.match(h.elements['#result'].innerHTML, /data-speak="Pommes"/);
   assert.match(h.elements['#result'].innerHTML, /Translation from.*MyMemory/);
   assert.doesNotMatch(h.elements['#result'].innerHTML, /inflection-grid|Related entries|RELATED ENTRIES|CC BY-SA/);

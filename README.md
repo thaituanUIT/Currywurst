@@ -60,7 +60,7 @@ Visited gender, comparison, and word-type tabs are kept in memory while the popu
 
 For a missing English definition, grammar appears first while Currywurst checks Wiktionary. If no suitable definition is found, the grammar remains available with **English meaning unavailable**.
 
-If Verbformen has no matching German entry, or its lookup fails, Currywurst requests a basic translation from MyMemory instead. The card shows **Basic translation · grammar unavailable** and its source. The selected word is kept as entered, since its original dictionary form is unknown. Related-entry suggestions are not shown. MyMemory's free service has a [daily usage limit](https://mymemory.translated.net/doc/usagelimits.php); a translation may be unavailable when that limit is reached.
+If Verbformen has no matching German entry, or its lookup fails, Currywurst requests a basic translation from MyMemory instead. The card shows the translation and its source. The selected word is kept as entered, since its original dictionary form is unknown. Related-entry suggestions are not shown. MyMemory's free service has a [daily usage limit](https://mymemory.translated.net/doc/usagelimits.php); a translation may be unavailable when that limit is reached.
 
 ## Save words
 
