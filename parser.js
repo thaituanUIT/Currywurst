@@ -113,6 +113,8 @@ function parseVerbformen(html, word, sourceUrl) {
     headwordForms,
     variants,
     comparisonVariants,
+    entryChoices: new RegExp(`\\b(?:${DICTIONARY_WORD_TYPES})\\s+`, "i").test(title)
+      ? extractWordTypeVariants(doc, lemma, partOfSpeech, sourceUrl, positive?.url || variants.find(variant => variant.article === nounArticle)?.url) : [],
     usageNotes,
     inflectionTables,
     excerpt: entryText.replace(/\s+/g, " ").slice(0, 900),
@@ -188,6 +190,40 @@ function extractComparisonVariants(doc, sourceUrl) {
     seen.add(degree);
     return [{ degree, label: degree[0].toUpperCase() + degree.slice(1), form, url }];
   });
+}
+
+function mergeEntryChoices(...lists) {
+  const seen = new Set();
+  return lists.flatMap(list => list || []).filter(entry => {
+    const url = dictionaryEntryUrl(entry.url, "https://www.verbformen.com/");
+    if (!url || seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  }).slice(0, 8);
+}
+
+function extractWordTypeVariants(doc, lemma, partOfSpeech, sourceUrl, canonicalUrl) {
+  const paths = { verb: "/conjugation/", noun: "/declension/nouns/", adjective: "/declension/adjectives/", pronoun: "/declension/pronouns/", article: "/declension/articles/" };
+  const links = [...doc.querySelectorAll("a[href]")];
+  const choices = links.flatMap(link => {
+    const url = dictionaryEntryUrl(link.getAttribute("href"), sourceUrl);
+    const match = cleanHeadword(link.textContent).match(/^(verb|noun|adjective|pronoun|article)\s+(.+)$/i);
+    if (!url || !match) return [];
+    const type = match[1].toLowerCase();
+    if (type === partOfSpeech || !new URL(url).pathname.startsWith(paths[type])) return [];
+    const label = match[2];
+    let headword = label.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "");
+    if (type === "verb") headword = headword.replace(/\s+/g, "");
+    if (!/^[\p{L}]+(?:[ '-][\p{L}]+)*$/u.test(headword)) return [];
+    const article = label.match(/(?:^|,\s*)(der|die|das)(?:\s|$)/i)?.[1];
+    return [{ lemma: headword, partOfSpeech: type, label: `${type} · ${article ? `${article} ${headword}` : headword}`, url }];
+  });
+  const ownUrl = [sourceUrl, canonicalUrl].map(url => dictionaryEntryUrl(url, sourceUrl))
+    .find(url => url && new URL(url).pathname.startsWith(paths[partOfSpeech] || "!"))
+    || links.map(link => ({ text: normalizeGermanForm(cleanHeadword(link.textContent)), url: dictionaryEntryUrl(link.getAttribute("href"), sourceUrl) }))
+      .find(link => link.text === normalizeGermanForm(lemma) && link.url && new URL(link.url).pathname.startsWith(paths[partOfSpeech] || "!"))?.url;
+  const own = ownUrl ? [{ lemma, partOfSpeech, label: `${partOfSpeech} · ${lemma}`, url: ownUrl }] : [];
+  return mergeEntryChoices(own, choices);
 }
 
 function parseGrammarSummary(summary, title) {
@@ -441,6 +477,33 @@ function parseSearchCards(html, sourceUrl) {
 
 function parseGermanSearchEntries(html, query, sourceUrl) {
   return parseSearchCards(html, sourceUrl).filter((entry) => isGermanEntryMatch({ ...entry.data, sourceUrl: entry.detailUrl || entry.url }, query));
+}
+
+function parseGermanSearchSuggestions(html, query, sourceUrl) {
+  return germanSearchSuggestionEntries(parseSearchCards(html, sourceUrl), query, sourceUrl);
+}
+
+function germanSearchSuggestionEntries(entries, query, sourceUrl) {
+  let page;
+  try { page = new URL(sourceUrl); } catch { return []; }
+  const selected = normalizeGermanForm(query);
+  // Only suggestions returned for this exact query may be offered. Guessed
+  // recovery routes and related links on dictionary pages are not search results.
+  if (page.origin !== "https://www.verbformen.com"
+    || !/^\/(?:search\/|conjugation\/|declension\/(?:nouns|adjectives|pronouns|articles)\/)?$/.test(page.pathname)
+    || normalizeGermanForm(page.searchParams.get("w") || "") !== selected
+    || !/^[\p{L}][\p{L} '-]{2,59}$/u.test(selected)) return [];
+  const seen = new Set();
+  return entries.flatMap(entry => {
+    const url = dictionaryEntryUrl(entry.detailUrl || entry.url, sourceUrl);
+    const lemma = normalizeGermanForm(entry.lemma);
+    // A compound such as Pommesbude is related to Pommes, not its base form.
+    // Keep it selectable without weakening the exact/form matching rules.
+    if (!url || seen.has(url) || !lemma.includes(selected)
+      || isGermanEntryMatch({ ...entry.data, sourceUrl: url }, query)) return [];
+    seen.add(url);
+    return [{ lemma: entry.lemma, label: entry.label || entry.lemma, partOfSpeech: entry.partOfSpeech, meaning: entry.meaning || "", url }];
+  }).slice(0, 8);
 }
 
 function nounArticleFromTags(tags = []) {

@@ -1,10 +1,15 @@
-// Resolve only the requested word. These are bounded fallbacks, not a crawl.
+// Resolve the requested word, or offer source-linked related entries for selection.
+// These are bounded fallbacks, not a crawl.
 async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache = new Map() } = {}) {
   const adjectiveCandidates = germanAdjectiveCandidates(word);
   const finiteVerbCandidates = germanPastTenseCandidates(word);
+  const regularVerbCandidates = germanRegularVerbCandidates(word);
   // Preserve the existing fallback allowance and reserve at most two extra
-  // requests for adjective forms instead of exhausting it on noun guesses.
-  const requestLimit = 6 + Math.max(adjectiveCandidates.length, finiteVerbCandidates.length);
+  // requests for word-form recovery instead of exhausting it on noun guesses.
+  const requestLimit = 6 + Math.max(adjectiveCandidates.length, finiteVerbCandidates.length, regularVerbCandidates.length);
+  const suggestions = new Map();
+  let suggestionSourceUrl;
+  const suggestedResult = () => suggestions.size ? { suggestions: { kind: "suggestions", query: word, entries: [...suggestions.values()], sourceUrl: suggestionSourceUrl } } : null;
   const load = async (url) => {
     signal.throwIfAborted();
     if (!cache.has(url)) {
@@ -24,7 +29,7 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
       const full = await load(fullUrl);
       if (full) {
         const parsed = parseVerbformen(full.html, word, full.sourceUrl);
-        if (isGermanEntryMatch(parsed, word)) return { data: { ...parsed, variants: mergeNounVariants(parsed, data.variants || []), entryChoices: data.entryChoices || parsed.entryChoices }, sourceUrl: full.sourceUrl };
+        if (isGermanEntryMatch(parsed, word)) return { data: { ...parsed, variants: mergeNounVariants(parsed, data.variants || []), entryChoices: mergeEntryChoices(parsed.entryChoices, data.entryChoices) }, sourceUrl: full.sourceUrl };
       }
     }
     return { data: { ...data, word }, sourceUrl };
@@ -36,11 +41,12 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     const cards = parseGermanSearchEntries(page.html, word, page.sourceUrl).sort((a, b) =>
       Number((b.lemma || b.data.lemma).toLocaleLowerCase("de-DE") === word.toLocaleLowerCase("de-DE"))
       - Number((a.lemma || a.data.lemma).toLocaleLowerCase("de-DE") === word.toLocaleLowerCase("de-DE")));
-    const entryChoices = cards.flatMap(entry => {
+    const directMatch = isGermanEntryMatch(data, word);
+    const entryChoices = mergeEntryChoices(directMatch ? data.entryChoices : [], cards.flatMap(entry => entry.data.entryChoices || []), cards.flatMap(entry => {
       const url = dictionaryEntryUrl(entry.detailUrl || entry.url, page.sourceUrl);
       return url ? [{ lemma: entry.data.lemma, partOfSpeech: entry.data.partOfSpeech, label: `${entry.data.partOfSpeech || "Entry"} · ${entry.label || entry.data.lemma}`, url }] : [];
-    }).filter((entry, index, all) => all.findIndex(other => other.url === entry.url) === index).slice(0, 8);
-    if (isGermanEntryMatch(data, word)) return completeEntry({ ...data, entryChoices }, page.sourceUrl);
+    }));
+    if (directMatch) return completeEntry({ ...data, entryChoices }, page.sourceUrl);
     const card = cards[0];
     if (card) {
       const variants = cards.filter((entry) => entry.data.lemma.toLowerCase() === card.data.lemma.toLowerCase()).flatMap((entry) => {
@@ -49,13 +55,18 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
         return article && url ? [{ article, label: `${article} ${entry.data.lemma}`, lemma: entry.data.lemma, url }] : [];
       });
       const completed = await completeEntry({ ...card.data, variants: mergeNounVariants(card.data, variants) }, page.sourceUrl, card.detailUrl);
-      completed.data.entryChoices = entryChoices;
+      completed.data.entryChoices = mergeEntryChoices(completed.data.entryChoices, entryChoices);
       return completed;
+    }
+    for (const entry of parseGermanSearchSuggestions(page.html, word, page.sourceUrl)) {
+      if (suggestions.size >= 8) break;
+      suggestions.set(entry.url, entry);
+      suggestionSourceUrl ||= page.sourceUrl;
     }
     return null;
   };
   const direct = await inspect(`https://www.verbformen.com/?w=${encodeURIComponent(word)}&l=11`);
-  if (direct || !recover) return direct;
+  if (direct || !recover) return direct || suggestedResult();
   const nounSelection = /^\p{Lu}/u.test(word);
   for (const path of [nounSelection ? "declension/nouns/" : "conjugation/", "search/"]) {
     const found = await inspect(`https://www.verbformen.com/${path}?w=${encodeURIComponent(word)}&l=11`);
@@ -66,7 +77,7 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     return inspect(slug ? `https://www.verbformen.com/conjugation/${slug}.htm`
       : `https://www.verbformen.com/conjugation/?w=${encodeURIComponent(candidate)}&l=11`);
   };
-  for (const candidate of nounSelection ? [] : finiteVerbCandidates) {
+  for (const candidate of nounSelection || regularVerbCandidates.length ? [] : finiteVerbCandidates) {
     const found = await inspectVerb(candidate);
     if (found) return found;
   }
@@ -75,6 +86,13 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     : `https://www.verbformen.com/declension/adjectives/?w=${encodeURIComponent(candidate)}&l=11`);
   if (!nounSelection && adjectiveCandidates.length) {
     const found = await inspectAdjective(adjectiveCandidates[0]);
+    if (found) return found;
+  }
+  // A -t form may be an adjective or a verb form. Prefer its exact adjective
+  // entry, then verify plausible infinitives rather than appending to the -t.
+  const remainingVerbs = [...new Set([...regularVerbCandidates, ...finiteVerbCandidates])];
+  for (const candidate of !nounSelection && regularVerbCandidates.length ? remainingVerbs : []) {
+    const found = await inspectVerb(candidate);
     if (found) return found;
   }
   // Query routes can miss a noun even when its dedicated page exists. Try
@@ -89,7 +107,7 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     const found = await inspect(url);
     if (found) return found;
   }
-  for (const candidate of nounSelection ? finiteVerbCandidates : []) {
+  for (const candidate of nounSelection ? remainingVerbs : []) {
     const found = await inspectVerb(candidate);
     if (found) return found;
   }
@@ -102,12 +120,13 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     // inspect still validates against the ORIGINAL selection, never the guess.
     if (found) return found;
   }
-  return null;
+  return suggestedResult();
 }
 
 function germanAdjectiveCandidates(word) {
   if (!/^[\p{L}-]{3,60}$/u.test(word)) return [];
   const value = word.normalize("NFC").toLocaleLowerCase("de-DE");
+  if (value.endsWith("t")) return [value];
   const match = value.match(/^(.{2,})(en|em|er|es|e)$/u);
   if (!match) return [];
   const [, stem, ending] = match;
@@ -132,7 +151,26 @@ function germanPastTenseCandidates(word) {
   const match = word.normalize("NFC").toLocaleLowerCase("de-DE").match(/^(.{2,})(?:test|tet|ten|te)$/u);
   if (!match) return [];
   const stem = match[1];
-  return /(?:e|el|er)$/.test(stem) ? [`${stem}n`] : [`${stem}en`];
+  return [infinitiveFromStem(stem)];
+}
+
+function infinitiveFromStem(stem) {
+  return /(?:e|el|er)$/.test(stem) ? `${stem}n` : `${stem}en`;
+}
+
+function germanRegularVerbCandidates(word) {
+  if (!/^[\p{L}]{4,60}$/u.test(word)) return [];
+  const value = word.normalize("NFC").toLocaleLowerCase("de-DE");
+  if (!value.endsWith("t")) return [];
+  const stems = [];
+  const simple = value.match(/^ge(.+)t$/u);
+  const separated = value.match(/^(ab|an|auf|aus|bei|ein|fest|fort|her|hin|los|mit|nach|nieder|statt|teil|um|vor|weg|weiter|wieder|zu|zurück|zusammen)ge(.+)t$/u);
+  if (simple) stems.push(simple[1]);
+  else if (separated) stems.push(separated[1] + separated[2]);
+  // Inseparable prefixes such as ver-/be- do not require ge-. Also retain
+  // literal stems where 'ge' belongs to the verb rather than the participle.
+  stems.push(value.slice(0, -1));
+  return [...new Set(stems.filter(stem => stem.length >= 2).map(infinitiveFromStem))].slice(0, 2);
 }
 
 function germanNounCandidates(word) {

@@ -345,6 +345,7 @@ async function searchEnglish(word, controller) {
 
 async function detectAndLookup(word, hint, preferredMode, controller) {
   const cache = new Map();
+  let suggestions;
   const loadPage = (url) => fetchPage(url, controller);
   const firstMode = /[äöüß]/i.test(word) ? "de-en" : hint === "en" ? "en-de" : hint === "de" ? "de-en" : preferredMode;
   const directions = [firstMode, firstMode === "de-en" ? "en-de" : "de-en"];
@@ -352,7 +353,8 @@ async function detectAndLookup(word, hint, preferredMode, controller) {
     controller.signal.throwIfAborted();
     if (direction === "de-en") {
       const found = await lookupGermanEntry(word, loadPage, controller.signal, { recover: hint === "de", cache });
-      if (found) return { mode: direction, ...found };
+      if (found?.suggestions) suggestions = { mode: direction, ...found };
+      else if (found) return { mode: direction, ...found };
     } else {
       const page = await searchEnglish(word, controller);
       controller.signal.throwIfAborted();
@@ -361,7 +363,7 @@ async function detectAndLookup(word, hint, preferredMode, controller) {
     }
   }
   const recovered = await lookupGermanEntry(word, loadPage, controller.signal, { cache });
-  return recovered ? { mode: "de-en", ...recovered } : null;
+  return recovered ? { mode: "de-en", ...recovered } : suggestions || null;
 }
 
 async function runLookup(word, detail = null, options = {}) {
@@ -394,7 +396,7 @@ async function runLookup(word, detail = null, options = {}) {
       }
       setMode(match.mode);
       chrome.storage.local.set({ lookupMode: match.mode }).catch(() => {});
-      if (match.state) renderEnglishResults(match.state);
+      if (match.state || match.suggestions) renderSearchResults(match.state || match.suggestions);
       else {
         sourceLink.href = match.sourceUrl;
         renderGermanEntry(match.data);
@@ -403,22 +405,28 @@ async function runLookup(word, detail = null, options = {}) {
       const page = await searchEnglish(word, controller);
       const entries = parseEnglishResults(page.html, word, page.sourceUrl);
       if (sequence !== lookupSequence) return;
-      renderEnglishResults({ query: word, entries, sourceUrl: page.sourceUrl });
+      renderSearchResults({ query: word, entries, sourceUrl: page.sourceUrl });
     } else {
       const found = cached ? { data: { ...cached, word }, sourceUrl: cached.sourceUrl } : detail
         ? await fetchPage(fullDictionaryEntryUrl(detail.entry.url, detail.entry.url) || detail.entry.url, controller).then((page) => ({ data: parseVerbformen(page.html, word, page.sourceUrl), sourceUrl: page.sourceUrl }))
         : await lookupGermanEntry(word, (url) => fetchPage(url, controller), controller.signal);
       if (sequence !== lookupSequence) return;
       if (detail?.previousData && !detail.variantKind && found && found.data.lemma.toLowerCase() !== detail.entry.lemma.toLowerCase()) throw new Error("This noun variant could not be found.");
-      if (detail?.variantKind && found && !isGermanEntryMatch(found.data, word)) throw new Error("This entry could not be verified.");
+      if (detail?.variantKind && found && (!isGermanEntryMatch(found.data, detail.variantKind === "entry" ? detail.entry.lemma : word)
+        || (detail.variantKind === "entry" && found.data.partOfSpeech !== detail.entry.partOfSpeech))) throw new Error("This entry could not be verified.");
       if (detail?.savedEntry && found && !isGermanEntryMatch(found.data, word)) throw new Error("This saved word could not be found.");
+      if (detail?.candidateEntry && found && !isGermanEntryMatch(found.data, detail.entry.lemma)) throw new Error("This suggested entry could not be verified.");
       if (!found) {
         result.innerHTML = '<p class="muted">No matching German entry found. Try another spelling or switch to EN → DE.</p>';
         return;
       }
+      if (found.suggestions) {
+        renderSearchResults(found.suggestions);
+        return;
+      }
       sourceLink.href = found.sourceUrl;
-      if (detail?.variantKind && detail.previousData) {
-        found.data.entryChoices = detail.previousData.entryChoices;
+      if (detail?.previousData) {
+        found.data.entryChoices = mergeEntryChoices(detail.previousData.entryChoices, found.data.entryChoices);
         if (detail.variantKind === "comparison" && !found.data.comparisonVariants?.length) found.data.comparisonVariants = detail.previousData.comparisonVariants;
       }
       renderGermanEntry(found.data, detail?.backState);
@@ -432,7 +440,7 @@ async function runLookup(word, detail = null, options = {}) {
     }
     result.innerHTML = `${detail?.backState ? backButton() : ""}<p class="error">${escapeHtml(controller.signal.aborted ? "Lookup timed out. Please try again." : error.message)}</p><p class="muted">You can also open the dictionary using the source link below.</p><button id="retry">Retry</button>`;
     document.querySelector("#retry").addEventListener("click", () => runLookup(word, detail, options));
-    if (detail?.backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderEnglishResults(detail.backState); });
+    if (detail?.backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderSearchResults(detail.backState); });
   } finally {
     clearTimeout(timeout);
   }
@@ -467,12 +475,15 @@ function uiIcon(name) {
   return `<svg class="ui-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[name]}</svg>`;
 }
 
-function renderEnglishResults(state) {
+function renderSearchResults(state) {
   stopMeaningLookup();
   currentEntry = undefined;
   sourceLink.href = state.sourceUrl;
   result.scrollTop = 0;
-  result.innerHTML = `<div class="result-head"><div><p class="eyebrow">ENGLISH → GERMAN</p><h1 class="word-title">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, "en-GB")}</div><p class="results-count muted">${state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"} · choose one to see its forms` : "No German matches found. Try another word or check Verbformen below."}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="Open grammar for ${escapeHtml(entry.label)}"><span class="translation-word">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(entry.partOfSpeech)}</span>` : ""}<span class="translation-meaning">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? "Forms & grammar" : "View meaning"} ${uiIcon("arrow-up-right")}</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
+  const related = state.kind === "suggestions";
+  const description = related ? "No exact match. Choose a related entry."
+    : state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"} · choose one to see its forms` : "No German matches found. Try another word or check Verbformen below.";
+  result.innerHTML = `<div class="result-head"><div><p class="eyebrow">${related ? "RELATED ENTRIES" : "ENGLISH → GERMAN"}</p><h1 class="word-title">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, related ? "de-DE" : "en-GB")}</div><p class="results-count muted">${description}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="Open grammar for ${escapeHtml(entry.label)}"><span class="translation-word">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(entry.partOfSpeech)}</span>` : ""}<span class="translation-meaning">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? "Forms & grammar" : "View meaning"} ${uiIcon("arrow-up-right")}</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
   result.querySelectorAll("[data-entry]").forEach((button) => button.addEventListener("click", () => {
     const entry = state.entries[Number(button.dataset.entry)];
     if (entry.data && !entry.detailUrl) {
@@ -481,7 +492,7 @@ function renderEnglishResults(state) {
       sourceLink.href = entry.url;
       result.scrollTop = 0;
       renderGermanEntry(entry.data, state);
-    } else runLookup(entry.lemma, { entry, backState: state });
+    } else runLookup(entry.lemma, { entry, backState: state, candidateEntry: related });
   }));
   bindPronunciation();
 }
@@ -506,7 +517,9 @@ function renderGermanEntry(data, backState, message = "") {
   const selectedDegree = degrees.findIndex(entry => new URL(entry.url).pathname === sourcePath);
   const comparison = degrees.length > 1 ? `<div class="noun-variants" role="group" aria-label="Adjective degree">${degrees.map((entry, index) => `<button type="button" class="noun-variant" data-degree="${index}" aria-pressed="${index === (selectedDegree >= 0 ? selectedDegree : 0)}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
   const choices = data.entryChoices || [];
-  const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 ? `<div class="noun-variants" role="group" aria-label="Dictionary entries">${choices.map((entry, index) => `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${new URL(entry.url).pathname === sourcePath}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
+  const selectedChoiceByUrl = choices.findIndex(entry => new URL(entry.url).pathname === sourcePath);
+  const selectedChoice = selectedChoiceByUrl >= 0 ? selectedChoiceByUrl : choices.findIndex(entry => entry.partOfSpeech === data.partOfSpeech && normalizeGermanForm(entry.lemma) === normalizeGermanForm(data.lemma));
+  const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 ? `<div class="noun-variants" role="group" aria-label="Dictionary entries">${choices.map((entry, index) => `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${index === selectedChoice}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
   const meaning = data.meaning || (data.meaningState === "unavailable" ? "English meaning unavailable." : "Finding English meaning…");
   result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss">${escapeHtml(meaning)}</p>${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
   for (const [selector, entries, variantKind] of [["[data-degree]", degrees, "comparison"], ["[data-entry-choice]", choices, "entry"]]) {
@@ -523,7 +536,7 @@ function renderGermanEntry(data, backState, message = "") {
     const variant = data.variants[Number(button.dataset.nounVariant)];
     runLookup(data.word, { entry: variant, backState, previousData: data });
   }));
-  if (backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderEnglishResults(backState); });
+  if (backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderSearchResults(backState); });
   bindPronunciation();
   if (saveButton) {
     result.insertAdjacentHTML("beforeend", '<p id="save-status" class="muted save-status" role="status"></p>');

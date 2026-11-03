@@ -6,6 +6,31 @@ const parser = vm.createContext({ URL, Node: { DOCUMENT_POSITION_FOLLOWING: 4 } 
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parser);
 const plain = value => JSON.parse(JSON.stringify(value));
 
+test('related German suggestions require the original query, a related headword, and a dictionary link', () => {
+  const card = (lemma, url = `https://www.verbformen.com/declension/nouns/${lemma}.htm`) => ({
+    lemma, label: `die ${lemma}`, partOfSpeech: 'noun', meaning: 'example', detailUrl: url,
+    data: { title: `German noun ${lemma}`, lemma, meaning: 'example', inflectionTables: [] },
+  });
+  const cards = [card('Pommesbude'), card('Pommesbude'), card('Pommesgabel'), card('Abend'), card('Pommes'),
+    card('Pommessalz', 'https://evil.example/declension/nouns/Pommessalz.htm'),
+    card('Pommespreis', 'https://www.verbformen.com/declension/nouns/Pommespreis.pdf')];
+  const found = parser.germanSearchSuggestionEntries(cards, 'Pommes', 'https://www.verbformen.com/?w=Pommes&l=11');
+  assert.deepEqual(plain(found).map(entry => entry.lemma), ['Pommesbude', 'Pommesgabel']);
+  for (const url of ['https://www.verbformen.com/', 'https://www.verbformen.com/?w=Pomme',
+    'https://www.verbformen.com/declension/nouns/Pommesbude.htm?w=Pommes',
+    'https://evil.example/?w=Pommes', 'https://www.verbformen.com/en-de/?w=Pommes']) {
+    assert.equal(parser.germanSearchSuggestionEntries(cards, 'Pommes', url).length, 0);
+  }
+  assert.equal(parser.isGermanEntryMatch(cards[0].data, 'Pommes'), false);
+});
+
+test('German suggestions are bounded and do not interpret short fragments as words', () => {
+  const entries = Array.from({ length: 20 }, (_, i) => ({ lemma: `Haus${String.fromCharCode(97 + i)}`,
+    detailUrl: `https://www.verbformen.com/declension/nouns/Haus${i}.htm`, data: { inflectionTables: [] } }));
+  assert.equal(parser.germanSearchSuggestionEntries(entries, 'Haus', 'https://www.verbformen.com/search/?w=Haus').length, 8);
+  assert.equal(parser.germanSearchSuggestionEntries(entries, 'Ha', 'https://www.verbformen.com/search/?w=Ha').length, 0);
+});
+
 test('verb metadata keeps auxiliary and separability without accepting prose', () => {
   assert.deepEqual(plain(parser.parseGrammarSummary('A1 · irregular · haben · separable', 'Conjugation of German verb aufrufen')), {
     level: 'A1', partOfSpeech: 'verb', grammarTags: ['irregular', 'haben', 'separable'],
@@ -131,6 +156,40 @@ test('comparison choices are source-linked, normalized, and exclude foreign link
   const variants = parser.extractComparisonVariants({ querySelectorAll: () => links }, 'https://www.verbformen.com/');
   assert.deepEqual(plain(variants.map(variant => variant.form)), ['ausgesprochen', 'ausgesprochener', 'ausgesprochensten']);
   assert.equal(parser.isGermanEntryMatch({ title: 'German adjective ausgesprochen', lemma: 'ausgesprochen', meaning: 'pronounced', comparisonVariants: variants }, 'ausgesprochener'), true);
+});
+
+test('dictionary-page type links retain klein and das Klein without navigation or degree links', () => {
+  const links = [
+    ['noun Klein, das', '/declension/nouns/Klein.htm'],
+    ['noun Klein, das', '/declension/nouns/Klein.htm'],
+    ['positive klein', '/declension/adjectives/klein.htm'],
+    ['comparative kleiner', '/declension/adjectives/kleiner.htm'],
+    ['Nouns', '/declension/nouns/'],
+    ['noun Klein', 'https://evil.example/declension/nouns/Klein.htm'],
+    ['noun falsch', '/declension/adjectives/falsch.htm'],
+    ['noun Klein', '/declension/nouns/Klein.pdf'],
+    ['noun click here!', '/declension/nouns/Klein.htm'],
+  ].map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  const found = plain(parser.extractWordTypeVariants({ querySelectorAll: () => links }, 'klein', 'adjective', 'https://www.verbformen.com/declension/adjectives/klein.htm'));
+  assert.deepEqual(found.map(entry => [entry.lemma, entry.partOfSpeech]), [['klein', 'adjective'], ['Klein', 'noun']]);
+  assert.equal(found[1].label, 'noun · das Klein');
+});
+
+test('query pages use a source-linked current entry so users can return from another type', () => {
+  const links = [['adjective klein', '/declension/adjectives/klein.htm'], ['neutral Klein, das', '/declension/nouns/Klein.htm']]
+    .map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  const found = parser.extractWordTypeVariants({ querySelectorAll: () => links }, 'Klein', 'noun', 'https://www.verbformen.com/?w=Klein', 'https://www.verbformen.com/declension/nouns/Klein.htm');
+  assert.deepEqual(plain(found).map(entry => entry.partOfSpeech), ['noun', 'adjective']);
+  assert.ok(found.every(entry => entry.url.endsWith('.htm')));
+});
+
+test('word-type links normalize split verb names and keep the current URL in its own type', () => {
+  const links = [['verb auf · rufen', '/conjugation/aufrufen.htm'], ['klein', '/declension/adjectives/klein.htm']]
+    .map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  const found = parser.extractWordTypeVariants({ querySelectorAll: () => links }, 'klein', 'adjective', 'https://www.verbformen.com/declension/nouns/Klein.htm');
+  assert.equal(found[0].partOfSpeech, 'adjective');
+  assert.equal(found[0].url, 'https://www.verbformen.com/declension/adjectives/klein.htm');
+  assert.equal(found[1].lemma, 'aufrufen');
 });
 
 test('a trusted lexical link can establish identity without an English meaning', () => {

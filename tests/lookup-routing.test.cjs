@@ -12,9 +12,11 @@ function harness(respond) {
   const context = vm.createContext({
     URL,
     dictionaryEntryUrl: parser.dictionaryEntryUrl,
+    mergeEntryChoices: parser.mergeEntryChoices,
     isGermanEntryMatch: parser.isGermanEntryMatch,
     parseVerbformen: (html, word, sourceUrl) => ({ ...(html.entry || empty), word, sourceUrl }),
     parseGermanSearchEntries: (html, word) => (html.cards || []).filter(card => parser.isGermanEntryMatch(card.data, word)),
+    parseGermanSearchSuggestions: (html, word, sourceUrl) => parser.germanSearchSuggestionEntries(html.cards || [], word, sourceUrl),
   });
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   const load = async (address) => {
@@ -85,6 +87,41 @@ test('unverified guesses and irrelevant homepage entries never become matches', 
   const result = await h.context.lookupGermanEntry('xyzword', h.load, h.signal);
   assert.equal(result, null);
   assert.ok(h.calls.length <= 6);
+});
+
+function pommesCard(lemma = 'Pommesbude') {
+  const url = `https://www.verbformen.com/declension/nouns/${lemma}.htm`;
+  return { lemma, label: `die ${lemma}`, partOfSpeech: 'noun', meaning: 'chip shop', url, detailUrl: url,
+    data: { title: `German noun ${lemma}`, lemma, partOfSpeech: 'noun', meaning: 'chip shop', inflectionTables: [] } };
+}
+
+test('a candidate-only Pommes response offers Pommesbude without loading or accepting it as the base word', async () => {
+  const h = harness(url => url.searchParams.get('w') === 'Pommes' ? { html: { cards: [pommesCard()] } } : {});
+  const result = await h.context.lookupGermanEntry('Pommes', h.load, h.signal);
+  assert.equal(result.data, undefined);
+  assert.equal(result.suggestions.query, 'Pommes');
+  assert.equal(result.suggestions.kind, 'suggestions');
+  assert.equal(result.suggestions.entries.length, 1);
+  assert.equal(result.suggestions.entries[0].lemma, 'Pommesbude');
+  assert.ok(h.calls.length <= 8);
+  assert.ok(h.calls.every(url => !url.pathname.endsWith('/Pommesbude.htm')));
+});
+
+test('an exact Pommes entry found during recovery takes priority over earlier compound suggestions', async () => {
+  const fries = { ...pommesCard('Pommes').data, meaning: 'fries' };
+  const h = harness(url => url.pathname.endsWith('/Pommes.htm') ? { html: { entry: fries } }
+    : url.searchParams.get('w') === 'Pommes' ? { html: { cards: [pommesCard()] } } : {});
+  const result = await h.context.lookupGermanEntry('Pommes', h.load, h.signal);
+  assert.equal(result.data.lemma, 'Pommes');
+  assert.equal(result.data.meaning, 'fries');
+  assert.equal(result.suggestions, undefined);
+});
+
+test('quick detection can return related candidates after a single request', async () => {
+  const h = harness(() => ({ html: { cards: [pommesCard()] } }));
+  const result = await h.context.lookupGermanEntry('Pommes', h.load, h.signal, { recover: false });
+  assert.equal(result.suggestions.entries[0].lemma, 'Pommesbude');
+  assert.equal(h.calls.length, 1);
 });
 
 test('404 routes are skipped, while an aborted lookup sends no requests', async () => {
@@ -284,4 +321,74 @@ test('verified grammar and linked lexical entries survive missing English glosse
   assert.equal(result?.data.lemma, 'Lernende');
   assert.equal(result.data.meaning, '');
   assert.equal(result.data.inflectionTables.length, 1);
+});
+
+test('redirected dictionary entries preserve source-linked word types without loading alternatives', async () => {
+  const adjectiveUrl = 'https://www.verbformen.com/declension/adjectives/klein.htm';
+  const nounUrl = 'https://www.verbformen.com/declension/nouns/Klein.htm';
+  const entryChoices = [{ lemma: 'klein', partOfSpeech: 'adjective', label: 'adjective · klein', url: adjectiveUrl },
+    { lemma: 'Klein', partOfSpeech: 'noun', label: 'noun · das Klein', url: nounUrl }];
+  const data = { title: 'German adjective klein', lemma: 'klein', partOfSpeech: 'adjective', meaning: 'small', entryChoices, inflectionTables: [] };
+  const h = harness(() => ({ html: { entry: data }, sourceUrl: adjectiveUrl }));
+  const result = await h.context.lookupGermanEntry('klein', h.load, h.signal);
+  assert.deepEqual(Array.from(result.data.entryChoices, entry => entry.partOfSpeech), ['adjective', 'noun']);
+  assert.equal(h.calls.length, 1);
+});
+
+test('search-card completion keeps word types discovered on the full dictionary page', async () => {
+  const adjectiveUrl = 'https://www.verbformen.com/declension/adjectives/klein.htm';
+  const noun = { lemma: 'Klein', partOfSpeech: 'noun', label: 'noun · das Klein', url: 'https://www.verbformen.com/declension/nouns/Klein.htm' };
+  const data = { title: 'German adjective klein', lemma: 'klein', partOfSpeech: 'adjective', meaning: 'small', inflectionTables: [] };
+  const h = harness(url => url.pathname === '/' ? { html: { cards: [{ data, lemma: 'klein', detailUrl: adjectiveUrl }] } }
+    : { html: { entry: { ...data, entryChoices: [noun] } } });
+  const result = await h.context.lookupGermanEntry('klein', h.load, h.signal);
+  assert.ok(result.data.entryChoices.some(entry => entry.partOfSpeech === 'noun'));
+  assert.ok(result.data.entryChoices.some(entry => entry.partOfSpeech === 'adjective'));
+  assert.equal(h.calls.length, 2);
+});
+
+test('verheiratet recovers verheiraten without requiring a ge- prefix', async () => {
+  const verb = { title: 'German verb verheiraten', lemma: 'verheiraten', partOfSpeech: 'verb', meaning: 'marry, get married', principalParts: 'verheiratet · verheiratete · hat verheiratet', inflectionTables: [] };
+  for (const query of ['verheiratet', 'Verheiratet']) {
+    const h = harness(url => url.pathname === '/conjugation/verheiraten.htm' ? { html: { entry: verb } } : {});
+    const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+    assert.equal(result?.data.lemma, 'verheiraten', query);
+    assert.equal(result.data.word, query);
+    assert.ok(h.calls.length <= 8);
+  }
+});
+
+test('uninflected adjectives ending in t use their exact source page first', async () => {
+  for (const word of ['verheiratet', 'begeistert', 'entspannt']) {
+    const adjective = { title: `German adjective ${word}`, lemma: word, partOfSpeech: 'adjective', meaning: 'example', inflectionTables: [] };
+    const h = harness(url => url.pathname === `/declension/adjectives/${word}.htm` ? { html: { entry: adjective } } : {});
+    assert.equal((await h.context.lookupGermanEntry(word, h.load, h.signal))?.data.lemma, word);
+    assert.equal(h.calls[3].pathname, `/declension/adjectives/${word}.htm`);
+  }
+});
+
+test('regular t/et forms recover stems and source-attested ge- particles', async () => {
+  for (const [query, lemma, slug] of [
+    ['arbeitet', 'arbeiten', 'arbeiten'],
+    ['benutzt', 'benutzen', 'benutzen'],
+    ['geöffnet', 'öffnen', 'o3ffnen'],
+    ['eingekauft', 'einkaufen', 'einkaufen'],
+    ['begeistert', 'begeistern', 'begeistern'],
+    ['verwendetet', 'verwenden', 'verwenden'],
+  ]) {
+    const verb = { title: `German verb ${lemma}`, lemma, partOfSpeech: 'verb', meaning: 'example', inflectionTables: [{ title: 'Present / participle', rows: [['Form', query]] }] };
+    const h = harness(url => url.pathname === `/conjugation/${slug}.htm` ? { html: { entry: verb } } : {});
+    const result = await h.context.lookupGermanEntry(query, h.load, h.signal);
+    assert.equal(result?.data.lemma, lemma, query);
+    assert.equal(result.data.word, query);
+    assert.ok(h.calls.length <= 8);
+  }
+});
+
+test('regular verb recovery rejects candidates that do not attest the original t-form', async () => {
+  const h = harness(url => url.pathname === '/conjugation/verheiraten.htm' ? { html: { entry: {
+    title: 'German verb verheiraten', lemma: 'verheiraten', partOfSpeech: 'verb', meaning: 'marry', inflectionTables: [{ title: 'Present', rows: [['ich', 'verheirate']] }],
+  } } } : {});
+  assert.equal(await h.context.lookupGermanEntry('verheiratet', h.load, h.signal), null);
+  assert.ok(h.calls.length <= 8);
 });

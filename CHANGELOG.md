@@ -7,6 +7,12 @@ Major features and fixes in Currywurst. Version numbers follow the extension man
 ### Changed
 
 - Reuse already visited gender, comparison-degree, and word-type tabs within the current lookup. Clear this in-memory cache on a new lookup or direction switch, and keep failed or cancelled loads out of it.
+
+### Fixed
+
+- Show source-linked alternative word types on dictionary entries, including **klein** (adjective) and **das Klein** (noun). Keep each type's meanings and grammar separate, and reuse visited type tabs within the current lookup.
+- Offer selectable related entries when a German search returns candidates instead of a matching entry. Keep exact words and verified inflections ahead of suggestions, and avoid treating compounds such as **Pommesbude** as the base form of **Pommes**.
+- Recover regular **-t/-et** verb forms such as **verheiratet → verheiraten**, including forms without a **ge-** prefix. Prefer an exact adjective entry when available and verify every derived infinitive against the original selected form.
 - Keep grammar tables within their fixed width, with compact article columns, automatic hyphenation, and line-break opportunities between slash-separated forms.
 
 ## 1.4.0
