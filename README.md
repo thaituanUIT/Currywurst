@@ -8,6 +8,8 @@ When no German dictionary entry is found, Currywurst tries MyMemory for a **basi
 
 See [CHANGELOG.md](CHANGELOG.md) for major updates, new features, and fixes.
 
+The interface currently ships in English, with localization support ready for additional languages. Interface language is independent of the German–English lookup direction. Contributors can follow the [localization guide](docs/I18N.md) to add a language.
+
 See [lookup coverage notes](https://github.com/thaituanUIT/Currywurst/blob/main/docs/VERBFORMEN.md) for supported word types, form matching, and known limits.
 
 ## Install the extension

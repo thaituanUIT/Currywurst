@@ -1,3 +1,5 @@
+localizeDocument();
+
 const input = document.querySelector("#word");
 const result = document.querySelector("#result");
 const sourceLink = document.querySelector("#source");
@@ -54,11 +56,11 @@ function setView(nextView) {
 async function savedWordsRequest(action, values = {}) {
   const sequence = ++savedSequence;
   const response = await chrome.runtime.sendMessage({ type: "savedWords", action, ...values });
-  if (!response?.ok) throw new Error(response?.error || "Could not access saved words. Please try again.");
+  if (!response?.ok) throw Object.assign(new Error(response?.error || t("saved_access_error")), { messageKey: response?.messageKey });
   if (sequence === savedSequence) {
     savedWords = response.words;
     savedReady = true;
-    document.querySelector("#saved-count").textContent = `${savedWords.length}/${SAVED_WORD_LIMIT}`;
+    document.querySelector("#saved-count").textContent = t("saved_count", [savedWords.length, SAVED_WORD_LIMIT]);
     updateSaveButton();
   }
   return response;
@@ -77,9 +79,9 @@ async function loadSavedWords() {
     }
   } catch (error) {
     if (sequence !== savedSequence) return;
-    savedLoadError = error.message;
+    savedLoadError = uiError(error);
     updateSaveButton();
-    if (view === "saved") setSavedStatus(error.message, true);
+    if (view === "saved") setSavedStatus(uiError(error), true);
   }
 }
 
@@ -93,11 +95,11 @@ function updateSaveButton() {
   if (!button || !currentEntry) return;
   const alreadySaved = savedWords.some(word => word.id === savedWordId(currentEntry));
   const full = savedWords.length >= SAVED_WORD_LIMIT;
-  button.textContent = alreadySaved ? "Saved" : savedBusy ? "Saving…" : "Save";
+  button.textContent = alreadySaved ? t("saved_button") : savedBusy ? t("saving_button") : t("save_button");
   button.disabled = !savedReady || savedBusy || alreadySaved || full;
-  button.title = alreadySaved ? "Already saved" : full ? "List full. Delete a word to save another." : "Save this word";
+  button.title = alreadySaved ? t("already_saved_title") : full ? t("saved_list_full") : t("save_word_title");
   const status = result.querySelector("#save-status");
-  if (status) status.textContent = saveError || savedLoadError || (full && !alreadySaved ? "List full. Delete a word to save another." : "");
+  if (status) status.textContent = saveError || savedLoadError || (full && !alreadySaved ? t("saved_list_full") : "");
 }
 
 async function saveCurrentWord() {
@@ -110,7 +112,7 @@ async function saveCurrentWord() {
     const sourceUrl = entry.comparisonVariants?.find(variant => variant.degree === "positive")?.url || entry.sourceUrl || sourceLink.href;
     await savedWordsRequest("add", { entry: savedWordRecord({ ...entry, sourceUrl }) });
   } catch (error) {
-    if (entry === currentEntry) saveError = error.message;
+    if (entry === currentEntry) saveError = uiError(error);
   } finally {
     savedBusy = false;
     updateSaveButton();
@@ -120,11 +122,11 @@ async function saveCurrentWord() {
 
 function renderSavedWords() {
   const words = savedWords;
-  savedList.innerHTML = !savedReady ? `<p class="muted">${escapeHtml(savedLoadError || "Loading saved words…")}</p>`
-    : !words.length ? '<p class="hint">No saved words yet.</p>'
+  savedList.innerHTML = !savedReady ? `<p class="muted">${escapeHtml(savedLoadError || t("loading_saved"))}</p>`
+    : !words.length ? `<p class="hint">${escapeHtml(t("empty_saved"))}</p>`
     : words.map((word, index) => {
       const label = word.article ? `${word.article} ${word.lemma}` : word.lemma;
-      return `<article class="saved-row" role="listitem"><div class="saved-word-block"><button class="saved-word" data-saved-word="${index}"><span lang="de">${escapeHtml(label)}</span><span class="saved-meaning">${escapeHtml(word.meaning)}</span></button>${meaningAttribution(word.meaningSource)}</div><button class="delete-word" data-delete-word="${index}" aria-label="Delete ${escapeHtml(label)}" title="Delete word" ${savedBusy ? "disabled" : ""}>${uiIcon("close")}</button></article>`;
+      return `<article class="saved-row" role="listitem"><div class="saved-word-block"><button class="saved-word" data-saved-word="${index}"><span lang="de">${escapeHtml(label)}</span><span class="saved-meaning" lang="en">${escapeHtml(word.meaning)}</span></button>${meaningAttribution(word.meaningSource)}</div><button class="delete-word" data-delete-word="${index}" aria-label="${escapeHtml(t("delete_word_label", label))}" title="${escapeHtml(t("delete_word_title"))}" ${savedBusy ? "disabled" : ""}>${uiIcon("close")}</button></article>`;
     }).join("");
   savedList.querySelectorAll("[data-saved-word]").forEach(button => button.addEventListener("click", () => openSavedWord(words[Number(button.dataset.savedWord)])));
   savedList.querySelectorAll("[data-delete-word]").forEach(button => button.addEventListener("click", () => deleteSavedWord(words[Number(button.dataset.deleteWord)].id)));
@@ -152,11 +154,11 @@ async function deleteSavedWord(id) {
       clearTimeout(undoTimer);
       removedWord = removed;
       undoButton.hidden = false;
-      setSavedStatus(`Deleted ${removed.lemma}.`);
+      setSavedStatus(t("deleted_word", removed.lemma));
       undoTimer = setTimeout(() => { removedWord = undefined; undoButton.hidden = true; }, 5000);
     }
   } catch (error) {
-    setSavedStatus(error.message, true);
+    setSavedStatus(uiError(error), true);
   } finally {
     savedBusy = false;
     renderSavedWords();
@@ -175,7 +177,7 @@ async function undoDelete() {
     undoButton.hidden = true;
     setSavedStatus("");
   } catch (error) {
-    setSavedStatus(error.message, true);
+    setSavedStatus(uiError(error), true);
   } finally {
     savedBusy = false;
     renderSavedWords();
@@ -228,9 +230,9 @@ function setMode(nextMode) {
   document.documentElement.dataset.mode = mode;
   modeToggle.innerHTML = `<span>${english ? "EN" : "DE"}</span>${uiIcon("arrow-right")}<span>${english ? "DE" : "EN"}</span>`;
   modeToggle.setAttribute("aria-pressed", String(english));
-  modeToggle.setAttribute("aria-label", `${english ? "English to German" : "German to English"}. Click to switch to ${english ? "German to English" : "English to German"}`);
-  searchLabel.textContent = english ? "YOUR ENGLISH WORD" : "YOUR GERMAN WORD";
-  input.setAttribute("aria-label", english ? "English word" : "German word");
+  modeToggle.setAttribute("aria-label", t(english ? "mode_to_german_label" : "mode_to_english_label"));
+  searchLabel.textContent = t(english ? "search_english_label" : "search_german_label");
+  input.setAttribute("aria-label", t(english ? "english_word_label" : "german_word_label"));
   sourceLink.href = english ? "https://www.verbformen.com/en-de/" : "https://www.verbformen.com/";
 }
 
@@ -239,9 +241,9 @@ function renderEmptyState() {
   currentEntry = undefined;
   result.scrollTop = 0;
   const message = input.value.trim()
-    ? "Press Look up to search this word again."
-    : "Type a word, or select text and right-click to look it up.";
-  result.innerHTML = `<div class="empty-state"><p class="hint">${message}</p></div>`;
+    ? t("restored_lookup_hint")
+    : t("empty_lookup_hint");
+  result.innerHTML = `<div class="empty-state"><p class="hint">${escapeHtml(message)}</p></div>`;
 }
 
 function stopPronunciation() {
@@ -265,8 +267,8 @@ function stopMeaningLookup() {
 function meaningAttribution(value) {
   const source = safeMeaningSource(value);
   if (!source) return "";
-  if (source.provider === "MyMemory") return `<p class="meaning-source">Translation from <a href="${source.url}" target="_blank" rel="noreferrer">MyMemory</a></p>`;
-  return `<p class="meaning-source">Meaning from <a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Wiktionary</a> · <a href="${escapeHtml(source.licenseUrl)}" target="_blank" rel="noreferrer">CC BY-SA 4.0</a></p>`;
+  if (source.provider === "MyMemory") return `<p class="meaning-source"><a href="${source.url}" target="_blank" rel="noreferrer">${escapeHtml(t("translation_from", "MyMemory"))}</a></p>`;
+  return `<p class="meaning-source"><a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">${escapeHtml(t("meaning_from", "Wiktionary"))}</a> · <a href="${escapeHtml(source.licenseUrl)}" target="_blank" rel="noreferrer">CC BY-SA 4.0</a></p>`;
 }
 
 function tabEntryKey(href) {
@@ -317,14 +319,14 @@ function loadMissingMeaning(data, backState, message) {
 }
 
 async function fetchPage(url, controller, options = {}) {
-  if (new URL(url).origin !== "https://www.verbformen.com") throw new Error("Unexpected dictionary address.");
+  if (new URL(url).origin !== "https://www.verbformen.com") throw new Error(t("dictionary_address_error"));
   const response = await fetch(url, { ...options, headers: { Accept: "text/html", ...options.headers }, signal: controller.signal });
   if (!response.ok) {
-    const error = new Error(`Verbformen returned HTTP ${response.status}`);
+    const error = new Error(t("dictionary_http_error", response.status));
     error.status = response.status;
     throw error;
   }
-  if (new URL(response.url || url).origin !== "https://www.verbformen.com") throw new Error("Unexpected dictionary redirect.");
+  if (new URL(response.url || url).origin !== "https://www.verbformen.com") throw new Error(t("dictionary_redirect_error"));
   return { html: await response.text(), sourceUrl: response.url || url };
 }
 
@@ -382,7 +384,7 @@ async function runLookup(word, detail = null, options = {}) {
   const timeout = setTimeout(() => controller.abort(), options.automatic ? 25000 : 15000);
   const showBasicTranslation = async () => {
     translationAttempted = true;
-    result.innerHTML = '<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>Finding a translation…</span></div>';
+    result.innerHTML = `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(t("finding_translation"))}</span></div>`;
     const translation = await findBasicTranslation(word, controller.signal);
     if (sequence !== lookupSequence || !translation) return false;
     setMode("de-en");
@@ -406,7 +408,7 @@ async function runLookup(word, detail = null, options = {}) {
       if (sequence !== lookupSequence) return;
       if (!match) {
         if (await showBasicTranslation() || sequence !== lookupSequence) return;
-        result.innerHTML = '<p class="muted">No dictionary entry or translation found. Try another spelling or choose a direction using the language button above.</p>';
+        result.innerHTML = `<p class="muted">${escapeHtml(t("no_auto_match"))}</p>`;
         return;
       }
       setMode(match.mode);
@@ -431,13 +433,13 @@ async function runLookup(word, detail = null, options = {}) {
         found = { data: parseVerbformen(page.html, word, page.sourceUrl), sourceUrl: page.sourceUrl };
       }
       if (sequence !== lookupSequence) return;
-      if (detail?.previousData && !detail.variantKind && found && found.data.lemma.toLowerCase() !== detail.entry.lemma.toLowerCase()) throw new Error("This noun variant could not be found.");
+      if (detail?.previousData && !detail.variantKind && found && found.data.lemma.toLowerCase() !== detail.entry.lemma.toLowerCase()) throw new Error(t("noun_variant_not_found"));
       if (detail?.variantKind && found && (!isGermanEntryMatch(found.data, detail.variantKind === "entry" ? detail.entry.lemma : word)
-        || (detail.variantKind === "entry" && found.data.partOfSpeech !== detail.entry.partOfSpeech))) throw new Error("This entry could not be verified.");
-      if (detail?.savedEntry && found && !isGermanEntryMatch(found.data, word)) throw new Error("This saved word could not be found.");
+        || (detail.variantKind === "entry" && found.data.partOfSpeech !== detail.entry.partOfSpeech))) throw new Error(t("entry_unverified"));
+      if (detail?.savedEntry && found && !isGermanEntryMatch(found.data, word)) throw new Error(t("saved_word_not_found"));
       if (!found) {
         if (!detail && (await showBasicTranslation() || sequence !== lookupSequence)) return;
-        result.innerHTML = '<p class="muted">No dictionary entry or translation found. Try another spelling or switch to EN → DE.</p>';
+        result.innerHTML = `<p class="muted">${escapeHtml(t("no_german_match"))}</p>`;
         return;
       }
       sourceLink.href = found.sourceUrl;
@@ -455,10 +457,10 @@ async function runLookup(word, detail = null, options = {}) {
     }
     if (detail?.previousData) {
       sourceLink.href = detail.previousData.sourceUrl;
-      renderGermanEntry(detail.previousData, detail.backState, detail.variantKind ? "Could not load this entry. Please try again." : "Could not load this noun variant. Please try again.");
+      renderGermanEntry(detail.previousData, detail.backState, detail.variantKind ? t("entry_load_error") : t("noun_load_error"));
       return;
     }
-    result.innerHTML = `${detail?.backState ? backButton() : ""}<p class="error">${escapeHtml(controller.signal.aborted ? "Lookup timed out. Please try again." : error.message)}</p><button id="retry">Retry</button>`;
+    result.innerHTML = `${detail?.backState ? backButton() : ""}<p class="error">${escapeHtml(controller.signal.aborted ? t("lookup_timeout") : uiError(error))}</p><button id="retry">${escapeHtml(t("retry_button"))}</button>`;
     document.querySelector("#retry").addEventListener("click", () => runLookup(word, detail, options));
     if (detail?.backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderSearchResults(detail.backState); });
   } finally {
@@ -467,21 +469,21 @@ async function runLookup(word, detail = null, options = {}) {
 }
 
 function loadingMessage(word, detail, options, direction) {
-  if (detail?.variantKind === "comparison") return `Loading ${detail.entry.degree} forms…`;
-  if (detail?.variantKind === "entry") return `Loading ${detail.entry.partOfSpeech || "dictionary"} entry…`;
-  if (detail?.previousData) return `Loading ${detail.entry.label || detail.entry.lemma}…`;
-  if (detail) return `Loading grammar for ${detail.entry.lemma}…`;
-  if (options.automatic) return "Checking language and meaning…";
-  if (direction === "en-de") return `Finding translations for ${word}…`;
-  return `Looking up ${word}…`;
+  if (detail?.variantKind === "comparison") return t("loading_degree", uiGrammarLabel(detail.entry.degree));
+  if (detail?.variantKind === "entry") return t("loading_entry", uiGrammarLabel(detail.entry.partOfSpeech) || t("dictionary_type"));
+  if (detail?.previousData) return t("loading_variant", detail.entry.label || detail.entry.lemma);
+  if (detail) return t("loading_grammar", detail.entry.lemma);
+  if (options.automatic) return t("loading_detection");
+  if (direction === "en-de") return t("loading_english", word);
+  return t("loading_german", word);
 }
 
 function speakerButton(word, language, recording = "") {
-  return `<button class="word-audio" data-speak="${escapeHtml(word)}" data-language="${language}" data-recording="${escapeHtml(recording)}" aria-label="Play ${escapeHtml(word)} pronunciation" title="Play ${escapeHtml(word)}">${uiIcon("play")}</button>`;
+  return `<button class="word-audio" data-speak="${escapeHtml(word)}" data-language="${language}" data-recording="${escapeHtml(recording)}" aria-label="${escapeHtml(t("play_pronunciation_label", word))}" title="${escapeHtml(t("play_word_title", word))}">${uiIcon("play")}</button>`;
 }
 
 function backButton() {
-  return `<button class="back-button" id="back-results">${uiIcon("arrow-left")}<span>Back to results</span></button>`;
+  return `<button class="back-button" id="back-results">${uiIcon("arrow-left")}<span>${escapeHtml(t("back_results"))}</span></button>`;
 }
 
 function uiIcon(name) {
@@ -500,8 +502,8 @@ function renderSearchResults(state) {
   currentEntry = undefined;
   sourceLink.href = state.sourceUrl;
   result.scrollTop = 0;
-  const description = state.entries.length ? `${state.entries.length} German ${state.entries.length === 1 ? "match" : "matches"}` : "No German matches found.";
-  result.innerHTML = `<div class="result-head"><div><p class="eyebrow">ENGLISH → GERMAN</p><h1 class="word-title">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, "en-GB")}</div><p class="results-count muted">${description}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="Open grammar for ${escapeHtml(entry.label)}"><span class="translation-word">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(entry.partOfSpeech)}</span>` : ""}<span class="translation-meaning">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? "Forms & grammar" : "View meaning"} ${uiIcon("arrow-up-right")}</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
+  const description = state.entries.length ? t(state.entries.length === 1 ? "one_german_match" : "many_german_matches", state.entries.length) : t("no_english_matches");
+  result.innerHTML = `<div class="result-head"><div><p class="eyebrow">${escapeHtml(t("english_to_german_heading"))}</p><h1 class="word-title" lang="en">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, "en-GB")}</div><p class="results-count muted">${escapeHtml(description)}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="${escapeHtml(t("open_grammar_label", entry.label))}"><span class="translation-word" lang="de">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(uiGrammarLabel(entry.partOfSpeech))}</span>` : ""}<span class="translation-meaning" lang="en">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? escapeHtml(t("forms_grammar")) : escapeHtml(t("view_meaning"))} ${uiIcon("arrow-up-right")}</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
   result.querySelectorAll("[data-entry]").forEach((button) => button.addEventListener("click", () => {
     const entry = state.entries[Number(button.dataset.entry)];
     if (entry.data && !entry.detailUrl) {
@@ -520,26 +522,26 @@ function renderGermanEntry(data, backState, message = "") {
   if (!message) cacheRenderedEntry(data);
   currentEntry = data;
   saveError = "";
-  const saveButton = data.lemma && data.meaning?.trim() ? '<button id="save-word" class="save-word" type="button">Save</button>' : "";
+  const saveButton = data.lemma && data.meaning?.trim() ? `<button id="save-word" class="save-word" type="button">${escapeHtml(t("save_button"))}</button>` : "";
   const separateForm = data.lemma.toLocaleLowerCase() !== data.word.toLocaleLowerCase();
   const audioButtons = `<div class="audio-controls">${speakerButton(data.lemma, "de-DE", data.audio?.[0])}<span>${escapeHtml(data.lemma)}</span>${separateForm ? `${speakerButton(data.word, "de-DE")}<span>${escapeHtml(data.word)}</span>` : ""}</div>`;
-  const tags = [data.level, data.partOfSpeech, ...(data.grammarTags || [data.grammar])].filter(Boolean).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
+  const tags = [data.level, data.partOfSpeech, ...(data.grammarTags || [data.grammar])].filter(Boolean).map((tag) => `<span class="tag">${escapeHtml(uiGrammarLabel(tag))}</span>`).join("");
   const tables = renderInflections(data.inflectionTables, data.partOfSpeech);
   const sourcePath = data.sourceUrl ? new URL(data.sourceUrl).pathname : "";
   const variantList = data.variants || [];
   const selectedByUrl = variantList.findIndex((variant) => new URL(variant.url).pathname === sourcePath);
   const selectedVariant = selectedByUrl >= 0 ? selectedByUrl : variantList.findIndex((variant) => variant.article === data.article);
-  const variants = variantList.length > 1 ? `<div class="noun-variants" role="group" aria-label="Noun articles">${variantList.map((variant, index) => `<button type="button" class="noun-variant" data-noun-variant="${index}" aria-pressed="${index === selectedVariant}">${escapeHtml(variant.label)}</button>`).join("")}</div>` : "";
+  const variants = variantList.length > 1 ? `<div class="noun-variants" role="group" aria-label="${escapeHtml(t("noun_articles_label"))}">${variantList.map((variant, index) => `<button type="button" class="noun-variant" data-noun-variant="${index}" aria-pressed="${index === selectedVariant}">${escapeHtml(variant.label)}</button>`).join("")}</div>` : "";
   const notes = (data.usageNotes || []).map((note) => `<p class="usage-note">${escapeHtml(note)}</p>`).join("");
   const degrees = data.comparisonVariants || [];
   const selectedDegree = degrees.findIndex(entry => new URL(entry.url).pathname === sourcePath);
-  const comparison = degrees.length > 1 ? `<div class="noun-variants" role="group" aria-label="Adjective degree">${degrees.map((entry, index) => `<button type="button" class="noun-variant" data-degree="${index}" aria-pressed="${index === (selectedDegree >= 0 ? selectedDegree : 0)}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
+  const comparison = degrees.length > 1 ? `<div class="noun-variants" role="group" aria-label="${escapeHtml(t("adjective_degree_label"))}">${degrees.map((entry, index) => `<button type="button" class="noun-variant" data-degree="${index}" aria-pressed="${index === (selectedDegree >= 0 ? selectedDegree : 0)}">${escapeHtml(uiGrammarLabel(entry.label))}</button>`).join("")}</div>` : "";
   const choices = mergeEntryChoices(data.entryChoices);
   const selectedChoiceByUrl = choices.findIndex(entry => new URL(entry.url).pathname === sourcePath);
   const selectedChoice = selectedChoiceByUrl >= 0 ? selectedChoiceByUrl : choices.findIndex(entry => entry.partOfSpeech === data.partOfSpeech && normalizeGermanForm(entry.lemma) === normalizeGermanForm(data.lemma));
-  const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 ? `<div class="noun-variants" role="group" aria-label="Dictionary entries">${choices.map((entry, index) => `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${index === selectedChoice}">${escapeHtml(entry.label)}</button>`).join("")}</div>` : "";
-  const meaning = data.meaning || (data.meaningState === "unavailable" ? "English meaning unavailable." : "Finding English meaning…");
-  result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss">${escapeHtml(meaning)}</p>${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
+  const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 ? `<div class="noun-variants" role="group" aria-label="${escapeHtml(t("dictionary_entries_label"))}">${choices.map((entry, index) => `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${index === selectedChoice}">${escapeHtml(entryChoiceLabel(entry))}</button>`).join("")}</div>` : "";
+  const meaning = data.meaning || (data.meaningState === "unavailable" ? t("english_meaning_unavailable") : t("finding_english_meaning"));
+  result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title" lang="de">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss" lang="en">${escapeHtml(meaning)}</p>${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
   for (const [selector, entries, variantKind] of [["[data-degree]", degrees, "comparison"], ["[data-entry-choice]", choices, "entry"]]) {
     result.querySelectorAll(selector).forEach(button => button.addEventListener("click", () => {
       if (button.getAttribute("aria-pressed") === "true") return;
@@ -578,7 +580,13 @@ function renderInflections(tables, partOfSpeech) {
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(table);
   }
-  return [...groups].map(([group, tables]) => `<section class="inflection-group">${group ? `<h2 class="group-title">${escapeHtml(group)}</h2>` : ""}${tables.map((table) => `<section class="inflection"><h3>${escapeHtml(table.title)}</h3><div class="table-scroll"><table lang="de"><colgroup>${inflectionColumns(table, partOfSpeech)}</colgroup>${table.rows.map((row, ri) => `<tr>${row.map((cell, ci) => { const meta = table.cells[ri][ci]; const tag = meta.header ? "th" : "td"; return `<${tag} lang="${meta.header ? "en" : "de"}" colspan="${meta.colSpan}" rowspan="${meta.rowSpan}">${escapeHtml(cell).replace(/\//g, "/<wbr>")}</${tag}>`; }).join("")}</tr>`).join("")}</table></div></section>`).join("")}</section>`).join("");
+  return [...groups].map(([group, tables]) => `<section class="inflection-group">${group ? `<h2 class="group-title">${escapeHtml(uiGrammarLabel(group))}</h2>` : ""}${tables.map((table) => `<section class="inflection"><h3>${escapeHtml(uiGrammarLabel(table.title))}</h3><div class="table-scroll"><table lang="de"><colgroup>${inflectionColumns(table, partOfSpeech)}</colgroup>${table.rows.map((row, ri) => `<tr>${row.map((cell, ci) => {
+    const meta = table.cells[ri][ci];
+    const tag = meta.header ? "th" : "td";
+    const label = meta.header || ci === 0 ? uiGrammarLabel(cell) : cell;
+    const language = label !== cell ? t("ui_locale") : meta.header ? "en" : "de";
+    return `<${tag} lang="${escapeHtml(language)}" colspan="${meta.colSpan}" rowspan="${meta.rowSpan}">${escapeHtml(label).replace(/\//g, "/<wbr>")}</${tag}>`;
+  }).join("")}</tr>`).join("")}</table></div></section>`).join("")}</section>`).join("");
 }
 
 function bindPronunciation() {
@@ -593,12 +601,12 @@ function bindPronunciation() {
       try { await recording.play(); return; } catch { recording.pause(); }
       if (sequence !== lookupSequence || activeAudio !== recording) return;
     }
-    if (!("speechSynthesis" in window)) { status.textContent = "Speech playback is unavailable in this browser."; return; }
+    if (!("speechSynthesis" in window)) { status.textContent = t("speech_unavailable"); return; }
     const utterance = new SpeechSynthesisUtterance(button.dataset.speak);
     utterance.lang = button.dataset.language;
     const voice = window.speechSynthesis.getVoices().find((candidate) => candidate.lang.toLowerCase().startsWith(utterance.lang.slice(0, 2)));
     if (voice) utterance.voice = voice;
-    utterance.onerror = (event) => { if (event.error !== "canceled" && event.error !== "interrupted") status.textContent = "Could not play this word. Check your browser's speech voices."; };
+    utterance.onerror = (event) => { if (event.error !== "canceled" && event.error !== "interrupted") status.textContent = t("speech_error"); };
     window.speechSynthesis.speak(utterance);
   }));
 }

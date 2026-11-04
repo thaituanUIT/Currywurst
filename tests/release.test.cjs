@@ -29,7 +29,7 @@ function command(root, executable, args) {
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'currywurst-release-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  for (const name of ['manifest.json', 'background.js', 'parser.js', 'lookup.js', 'saved-words.js', 'meaning.js', 'popup.js', 'popup.html', 'popup.css', 'icon.svg', 'icons', 'docs', 'scripts', 'README.md', 'CHANGELOG.md']) {
+  for (const name of ['manifest.json', 'i18n.js', '_locales', 'background.js', 'parser.js', 'lookup.js', 'saved-words.js', 'meaning.js', 'popup.js', 'popup.html', 'popup.css', 'icon.svg', 'icons', 'docs', 'scripts', 'README.md', 'CHANGELOG.md']) {
     fs.cpSync(name, path.join(root, name), { recursive: true });
   }
   const version = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'))).version;
@@ -52,7 +52,7 @@ test('release ZIP includes runtime files, excludes local files, and has matching
   const listing = command(root, 'unzip', ['-Z1', archive]);
   assert.equal(listing.status, 0, listing.stderr);
   const files = listing.stdout.trim().split('\n');
-  for (const name of ['manifest.json', 'lookup.js', 'saved-words.js', 'meaning.js', 'popup.html', 'icons/icon-128.png', 'README.md', 'CHANGELOG.md']) assert.ok(files.includes(name), name);
+  for (const name of ['manifest.json', 'i18n.js', '_locales/en/messages.json', 'lookup.js', 'saved-words.js', 'meaning.js', 'popup.html', 'icons/icon-128.png', 'README.md', 'CHANGELOG.md']) assert.ok(files.includes(name), name);
   assert.ok(files.every(name => !name.startsWith('.') && !/^(scripts|tests|dist|docs)\//.test(name)));
   assert.ok(!files.includes('obsolete.txt'));
   const manifest = command(root, 'unzip', ['-p', archive, 'manifest.json']);
@@ -96,4 +96,20 @@ test('release packaging fails if a required extension file is missing', t => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /popup.js/);
   assert.ok(!fs.existsSync(path.join(root, 'dist')));
+});
+
+test('release packaging requires the default catalog and includes additional locale catalogs', t => {
+  const f = fixture(t);
+  fs.mkdirSync(path.join(f.root, '_locales/de'));
+  fs.writeFileSync(path.join(f.root, '_locales/de/messages.json'), JSON.stringify({ ui_locale: { message: 'de' }, ui_direction: { message: 'ltr' }, lookup_button: { message: 'Nachschlagen' } }));
+  fs.mkdirSync(path.join(f.root, '_locales/es_419'));
+  fs.writeFileSync(path.join(f.root, '_locales/es_419/messages.json'), JSON.stringify({ ui_locale: { message: 'es-419' }, ui_direction: { message: 'ltr' } }));
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+  const listing = command(f.root, 'unzip', ['-Z1', `dist/Currywurst-${f.version}.zip`]);
+  assert.ok(listing.stdout.includes('_locales/en/messages.json'));
+  assert.ok(listing.stdout.includes('_locales/de/messages.json'));
+  assert.ok(listing.stdout.includes('_locales/es_419/messages.json'));
+  fs.rmSync(path.join(f.root, '_locales/en/messages.json'));
+  assert.notEqual(f.run().status, 0);
 });

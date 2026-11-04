@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
+const { browserI18n } = require('./helpers/i18n.cjs');
 const source = fs.readFileSync('saved-words.js', 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 const entry = (lemma, extra = {}) => ({ lemma, meaning: `English for ${lemma}`, partOfSpeech: 'noun', article: 'die', ...extra });
@@ -97,8 +98,9 @@ test('background messages use the shared store and reject unknown actions', asyn
   const h = harness();
   let listener;
   const context = vm.createContext({ URL, chrome: {
+    i18n: browserI18n(),
     storage: { local: h.storage },
-    runtime: { onMessage: { addListener: fn => { listener = fn; } }, onInstalled: { addListener() {} } },
+    runtime: { onMessage: { addListener: fn => { listener = fn; } }, onInstalled: { addListener() {} }, onStartup: { addListener() {} } },
     contextMenus: { onClicked: { addListener() {} } },
   } });
   context.importScripts = file => vm.runInContext(fs.readFileSync(file, 'utf8'), context);

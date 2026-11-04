@@ -2,6 +2,12 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## 1.5.1
+
+### Added
+
+- Browser-native localization support with an English message catalog for the popup, context menu, extension metadata, accessibility labels, status messages, and grammar controls. Package locale files in release downloads and document how to add translations. Only English ships initially; interface language stays independent of dictionary content and lookup direction.
+
 ## 1.5.0
 
 ### Added

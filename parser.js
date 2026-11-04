@@ -382,7 +382,7 @@ function parseEnglishSearchForm(html, sourceUrl) {
     }
   }
   const action = new URL(form?.getAttribute("action") || sourceUrl, sourceUrl);
-  if (action.origin !== "https://www.verbformen.com") throw new Error("Unexpected dictionary search address.");
+  if (action.origin !== "https://www.verbformen.com") throw Object.assign(new Error("Unexpected dictionary search address."), { messageKey: "dictionary_search_address_error" });
   return { action: action.href, method: form?.getAttribute("method")?.toUpperCase() === "POST" ? "POST" : "GET", fields };
 }
 

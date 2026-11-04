@@ -1,3 +1,4 @@
+importScripts("i18n.js");
 importScripts("saved-words.js");
 const savedWordsStore = createSavedWordsStore(chrome.storage.local);
 
@@ -10,19 +11,21 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     restore: () => savedWordsStore.restore(message.entry),
   };
   Promise.resolve().then(() => {
-    if (!Object.hasOwn(actions, message.action)) throw new Error("Unknown saved-word action.");
+    if (!Object.hasOwn(actions, message.action)) throw Object.assign(new Error("Unknown saved-word action."), { messageKey: "saved_unknown_action" });
     return actions[message.action]();
-  }).then(value => respond({ ok: true, ...value }), error => respond({ ok: false, error: error.message }));
+  }).then(value => respond({ ok: true, ...value }), error => respond({ ok: false, error: error.message, messageKey: error.messageKey }));
   return true;
 });
 
 const MENU_ID = "german-word-lookup";
 
-chrome.runtime.onInstalled.addListener(() => {
+function registerLookupMenu() {
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({ id: MENU_ID, title: "Look up with Currywurst: %s", contexts: ["selection"] });
+    chrome.contextMenus.create({ id: MENU_ID, title: t("context_lookup"), contexts: ["selection"] });
   });
-});
+}
+chrome.runtime.onInstalled.addListener(registerLookupMenu);
+chrome.runtime.onStartup.addListener(registerLookupMenu);
 
 // This function runs only after the user explicitly invokes the lookup.
 // Read the language of the selection's nearest marked element, not page text.

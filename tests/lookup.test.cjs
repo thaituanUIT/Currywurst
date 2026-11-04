@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
+const { browserI18n, english } = require('./helpers/i18n.cjs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const parserContext = vm.createContext({ URL });
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
@@ -9,7 +10,7 @@ vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 function makeElement(dataset = {}) {
   return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; }, insertAdjacentHTML(position, html) { this.innerHTML += html; } };
 }
-function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null) {
+function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null, locale = {}) {
   const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry', '#lookup-tab', '#saved-tab', '#lookup-view', '#saved-view', '#saved-count', '#saved-list', '#saved-status', '#undo-delete', '#save-word', '#save-status'].map(id => [id, makeElement()]));
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
   const entryButton = makeElement({ entry: '0' });
@@ -55,8 +56,8 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   };
   const requests = [], saved = [];
   const context = vm.createContext({
-    document: { documentElement: { dataset: {} }, querySelector: id => elements[id] }, window: {},
-    chrome: { storage: {
+    document: { documentElement: { dataset: {} }, querySelectorAll: () => [], querySelector: id => elements[id] }, window: {},
+    chrome: { i18n: browserI18n(locale), storage: {
       local: { get: async () => ({ ...savedState }), set: async value => { saved.push(value); Object.assign(savedState, value); } },
       session: {
         get: async () => ({ ...sessionState }),
@@ -75,6 +76,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
     parseGermanSearchEntries: () => [],
     parseVerbformen: (_, word) => ({ word, lemma: word, title: `Noun ${word}`, ipa: [], audio: [], inflectionTables: [], meaning: word }),
   });
+  vm.runInContext(fs.readFileSync('i18n.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('saved-words.js', 'utf8'), context);
   context.createEnglishMeaningFallback = () => meaningLookup;
   context.createBasicTranslationFallback = () => basicLookup;
@@ -83,7 +85,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
     try {
       const argument = message.action === 'remove' ? message.id : message.entry;
       return { ok: true, ...await store[message.action](argument) };
-    } catch (error) { return { ok: false, error: error.message }; }
+    } catch (error) { return { ok: false, error: error.message, messageKey: error.messageKey }; }
   } };
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
@@ -105,6 +107,48 @@ test('latest search wins and manual searches persist', async () => {
   assert.equal(h.elements['#result'].innerHTML, latest);
   assert.match(latest, /neu/);
   assert.equal(h.saved.at(-1).lookupWord, 'neu');
+});
+
+test('localized popup messages leave lookup directions and dictionary content unchanged', async () => {
+  const locale = {
+    ui_locale: { message: 'zz' },
+    mode_to_english_label: { message: 'Direction DE EN' },
+    mode_to_german_label: { message: 'Direction EN DE' },
+    search_german_label: { message: 'SOURCE WORD' },
+    grammar_noun: { message: 'NOUN LABEL' },
+    heading_singular: { message: 'SINGULAR LABEL' },
+    save_button: { message: 'Keep' },
+    loading_german: { ...english.loading_german, message: 'Search: $WORD$' },
+  };
+  const h = harness({}, {}, async () => null, async () => null, locale);
+  await tick();
+  assert.equal(h.context.document.documentElement.lang, 'zz');
+  assert.equal(h.elements['.search-label'].textContent, 'SOURCE WORD');
+  const pending = h.context.runLookup('Haus');
+  assert.match(h.elements['#result'].innerHTML, /Search: Haus/);
+  assert.equal(new URL(h.requests[0].url).searchParams.get('w'), 'Haus');
+  assert.equal(new URL(h.requests[0].url).searchParams.get('l'), '11');
+  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Haus', { word, sourceUrl, title: 'German noun Haus', meaning: 'house', article: 'das', inflectionTables: [{ title: 'Singular', rows: [['Nom.', 'das', 'Haus']], cells: [[{ header: false, colSpan: 1, rowSpan: 1 }, { header: false, colSpan: 1, rowSpan: 1 }, { header: false, colSpan: 1, rowSpan: 1 }]] }] });
+  h.respond(0);
+  await pending;
+  assert.match(h.elements['#result'].innerHTML, /NOUN LABEL/);
+  assert.match(h.elements['#result'].innerHTML, /SINGULAR LABEL/);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss" lang="en">house/);
+  assert.match(h.elements['#result'].innerHTML, /lang="de">Haus/);
+  assert.equal(h.elements['#save-word'].textContent, 'Keep');
+  h.elements['#mode-toggle'].listeners.click();
+  assert.equal(h.context.document.documentElement.dataset.mode, 'en-de');
+  assert.equal(h.elements['#mode-toggle'].getAttribute('aria-label'), 'Direction EN DE');
+});
+
+test('localized audio labels escape both message text and selected words', async () => {
+  const h = harness({}, {}, async () => null, async () => null, {
+    play_pronunciation_label: { ...english.play_pronunciation_label, message: '<Listen> $WORD$' },
+  });
+  await tick();
+  const html = h.context.speakerButton('<img src=x>', 'de-DE');
+  assert.match(html, /aria-label="&lt;Listen&gt; &lt;img src=x&gt;"/);
+  assert.doesNotMatch(html, /<Listen>|<img/);
 });
 
 test('mode switch clears the old word and waits for a new explicit search', async () => {
@@ -227,7 +271,7 @@ test('a failed word-type tab keeps the current dictionary result and never invok
   h.respond(0);
   await tick();
   assert.equal(calls, 0);
-  assert.match(h.elements['#result'].innerHTML, /class="gloss">small/);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss"[^>]*>small/);
   assert.match(h.elements['#result'].innerHTML, /Could not load this entry/);
 });
 
@@ -356,7 +400,8 @@ test('right-click exposes one automatic lookup and keeps manual direction unchan
   const installed = [], clicked = [], menus = [], saved = [], session = [];
   let opened = 0;
   const context = vm.createContext({ chrome: {
-    runtime: { onInstalled: { addListener: fn => installed.push(fn) }, onMessage: { addListener() {} } },
+    i18n: browserI18n(),
+    runtime: { onInstalled: { addListener: fn => installed.push(fn) }, onStartup: { addListener() {} }, onMessage: { addListener() {} } },
     contextMenus: { removeAll: fn => fn(), create: menu => menus.push(menu), onClicked: { addListener: fn => clicked.push(fn) } },
     storage: {
       local: { set: async value => saved.push(value) },
@@ -745,14 +790,14 @@ test('klein and das Klein keep independent meanings, grammar, saved types, and c
   await tick();
   assert.match(h.elements['#result'].innerHTML, /giblets/);
   assert.match(h.elements['#result'].innerHTML, /Singular/);
-  assert.doesNotMatch(h.elements['#result'].innerHTML, /class="gloss">small/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /class="gloss"[^>]*>small/);
   assert.equal(h.choiceButtons()[1].getAttribute('aria-pressed'), 'true');
   await h.context.saveCurrentWord();
   assert.equal(h.savedState.savedWords[0].lemma, 'Klein');
   assert.equal(h.savedState.savedWords[0].partOfSpeech, 'noun');
   h.choiceButtons()[0].listeners.click();
   assert.equal(h.requests.length, 1);
-  assert.match(h.elements['#result'].innerHTML, /class="gloss">small/);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss"[^>]*>small/);
   assert.equal(h.choiceButtons()[0].getAttribute('aria-pressed'), 'true');
   h.choiceButtons()[1].listeners.click();
   assert.equal(h.requests.length, 1);
@@ -770,7 +815,7 @@ test('a type switch rejects a redirect to the same spelling with the wrong word 
   h.respond(0);
   await tick();
   assert.match(h.elements['#result'].innerHTML, /Could not load this entry/);
-  assert.match(h.elements['#result'].innerHTML, /class="gloss">small/);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss"[^>]*>small/);
   h.choiceButtons()[1].listeners.click();
   assert.equal(h.requests.length, 2);
   h.respond(1);
