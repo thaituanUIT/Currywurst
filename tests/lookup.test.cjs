@@ -195,6 +195,42 @@ test('a verified dictionary entry does not call the basic translation service', 
   assert.doesNotMatch(h.elements['#result'].innerHTML, /Basic translation/);
 });
 
+test('manual English searches never fall back to translating their input as German', async () => {
+  for (const serviceError of [false, true]) {
+    let calls = 0;
+    const h = harness({}, {}, async () => null, async () => { calls++; return { meaning: 'wrong direction' }; });
+    await tick();
+    h.context.setMode('en-de');
+    h.context.parseEnglishResults = () => [];
+    const pending = h.context.runLookup('unknownword');
+    if (serviceError) h.requests[0].resolve({ ok: false, status: 503, url: h.requests[0].url });
+    else {
+      h.respond(0);
+      await tick();
+      h.respond(1);
+    }
+    await pending;
+    assert.equal(calls, 0);
+    assert.doesNotMatch(h.elements['#result'].innerHTML, /wrong direction|id="save-word"/);
+    assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^English to German/);
+  }
+});
+
+test('a failed word-type tab keeps the current dictionary result and never invokes basic translation', async () => {
+  let calls = 0;
+  const h = harness({}, {}, async () => null, async () => { calls++; return { meaning: 'unrelated translation' }; });
+  await tick();
+  const entryChoices = kleinWordTypes();
+  h.context.renderGermanEntry(germanEntry('klein', { title: 'German adjective klein', partOfSpeech: 'adjective', meaning: 'small', entryChoices, sourceUrl: entryChoices[0].url }));
+  h.context.parseVerbformen = () => { throw new Error('Entry unavailable'); };
+  h.choiceButtons()[1].listeners.click();
+  h.respond(0);
+  await tick();
+  assert.equal(calls, 0);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss">small/);
+  assert.match(h.elements['#result'].innerHTML, /Could not load this entry/);
+});
+
 test('Verbformen connection errors can use the basic fallback, while unavailable services show no fabricated result', async () => {
   const h = harness({}, {}, async () => null, async () => ({ meaning: 'French fries', meaningSource: { provider: 'MyMemory', url: 'https://mymemory.translated.net/' } }));
   await tick();

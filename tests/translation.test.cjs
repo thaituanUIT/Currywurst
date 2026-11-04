@@ -33,6 +33,35 @@ test('Pommes uses the documented German-to-English endpoint with only the lookup
   assert.equal(found.inflectionTables, undefined);
 });
 
+test('fallback requests preserve German characters and normalize decomposed input', async () => {
+  for (const [word, expected, translation] of [
+    ['  Pommes  ', 'Pommes', 'French fries'],
+    ['Straße', 'Straße', 'street'],
+    ['Fußgänger', 'Fußgänger', 'pedestrian'],
+    ['Überraschung', 'Überraschung', 'surprise'],
+    ['Café', 'Café', 'coffee shop'],
+    ['Erla\u0308uterung', 'Erläuterung', 'explanation'],
+  ]) {
+    const h = harness({ responseStatus: 200, responseData: { translatedText: translation } });
+    const result = await h.translate(word);
+    assert.equal(result.meaning, translation);
+    assert.equal(new URL(h.calls[0].url).searchParams.get('q'), expected);
+    assert.equal(h.calls.length, 1);
+  }
+});
+
+test('HTTP errors, invalid JSON, and connection failures do not get saved as translations', async () => {
+  for (const fetchImpl of [
+    async () => ({ ok: false, status: 503 }),
+    async () => ({ ok: true, json: async () => { throw new SyntaxError('Invalid JSON'); } }),
+    async () => { throw new TypeError('Failed to fetch'); },
+  ]) {
+    const h = harness(null, { fetchImpl });
+    assert.equal(await h.translate('Pommes'), null);
+    assert.equal(h.state.translationCache, undefined);
+  }
+});
+
 test('translation cache survives reopening during the browser session and stays bounded', async () => {
   const h = harness();
   await h.translate('Pommes');

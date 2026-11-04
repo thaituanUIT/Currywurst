@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Currywurst",
-  "version": "1.4.0",
-  "description": "Look up selected German words on Verbformen.",
+  "version": "1.5.0",
+  "description": "German-English lookups with pronunciation, grammar, saved words, and translation fallback.",
   "permissions": ["contextMenus", "storage", "activeTab", "scripting"],
   "host_permissions": ["https://www.verbformen.com/*", "https://en.wiktionary.org/*", "https://api.mymemory.translated.net/*"],
   "background": { "service_worker": "background.js" },
