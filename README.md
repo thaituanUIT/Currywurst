@@ -4,7 +4,11 @@ Look up German and English words while you read in Chrome or Microsoft Edge. Cur
 
 When a verified entry has no English meaning on Verbformen, Currywurst tries English Wiktionary and labels the definition with its source.
 
+When no German dictionary entry is found, Currywurst tries MyMemory for a **basic English translation**. You can listen and save it; detailed grammar and word forms are unavailable for that result.
+
 See [CHANGELOG.md](CHANGELOG.md) for major updates, new features, and fixes.
+
+The interface currently ships in English, with localization support ready for additional languages. Interface language is independent of the German–English lookup direction. Contributors can follow the [localization guide](docs/I18N.md) to add a language.
 
 See [lookup coverage notes](https://github.com/thaituanUIT/Currywurst/blob/main/docs/VERBFORMEN.md) for supported word types, form matching, and known limits.
 
@@ -54,7 +58,11 @@ Some nouns have more than one article. When article buttons appear, such as **di
 
 Adjective entries can offer **Positive**, **Comparative**, and **Superlative** buttons. If a lookup has different word types, choose the matching entry. Alternatives load when clicked.
 
+Visited gender, comparison, and word-type tabs are kept in memory while the popup is open, so switching back shows the result immediately. Starting another lookup or switching translation direction clears this tab cache. Long table forms wrap within the table width, using German hyphenation where supported and breaks between slash-separated alternatives.
+
 For a missing English definition, grammar appears first while Currywurst checks Wiktionary. If no suitable definition is found, the grammar remains available with **English meaning unavailable**.
+
+If Verbformen has no matching German entry, or its lookup fails, Currywurst requests a basic translation from MyMemory instead. The card shows the translation and its source. The selected word is kept as entered, since its original dictionary form is unknown. Related-entry suggestions are not shown. MyMemory's free service has a [daily usage limit](https://mymemory.translated.net/doc/usagelimits.php); a translation may be unavailable when that limit is reached.
 
 ## Save words
 
@@ -67,6 +75,8 @@ Click **×** beside a saved word to delete it. **Undo** is available for five se
 Your list stays on this browser after a restart and can be read offline. Looking up a saved word requires internet. Saving and deleting do not send dictionary requests, and the list is not synced to other browsers or devices.
 
 Saved fallback definitions retain their Wiktionary source and licence links.
+
+Saved basic translations retain their MyMemory attribution and the selected word.
 
 ## If something goes wrong
 
@@ -85,15 +95,17 @@ This disclosure describes the current version of Currywurst in this repository.
 
 When a verified German entry lacks an English gloss, its dictionary form is sent to the [English Wiktionary API](https://en.wiktionary.org/w/api.php). Currywurst may follow one related dictionary form explicitly linked by that source, matching the word type and noun gender. These requests omit browser credentials and send no surrounding webpage text. Wikimedia receives the requested word and standard connection information, including your IP address; its [privacy policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) applies. This fallback makes at most two requests within a four-second deadline.
 
+If no German dictionary entry can be retrieved, the selected lookup text is sent to [MyMemory's translation API](https://mymemory.translated.net/doc/spec.php) with the language pair German → English. This fallback makes one HTTPS request within a four-second deadline, omits browser credentials and referrers, and sends no page URL or surrounding text. MyMemory receives the lookup text and standard connection information such as your IP address. No API key, account, or email is supplied by Currywurst; the service's [terms](https://mymemory.translated.net/doc/tos.php) and [usage limits](https://mymemory.translated.net/doc/usagelimits.php) apply. Only its lookup endpoint is used.
+
 **Pronunciation:** Playing a dictionary recording requests an audio file from Verbformen. If a recording is unavailable, Currywurst asks the browser to speak the word. Depending on the voice and your browser or operating system, speech may be generated on your device or by a third-party speech service. That service may receive the word being spoken.
 
 **What stays on your device:** The last lookup text and selected lookup direction are saved in the extension's local browser storage. This is not a complete lookup history and is not synced through Currywurst. Saved values remain until replaced or the browser clears the extension's data. A right-click lookup temporarily stores the selected word and its language hint in browser-session storage, then consumes that request when the popup opens. Reopening the popup restores the search text without sending it to Verbformen; click **Look up** or invoke a fresh right-click lookup to search again.
 
 Words you choose to save are also stored locally, including their dictionary form, English meaning, word type, noun article when available, dictionary link, and save time. They remain until you delete them, clear the extension's storage, or uninstall the extension. The saved list is not uploaded or synced. Clicking a saved entry sends its dictionary form to Verbformen or opens its dictionary entry to perform a new lookup.
 
-Fallback results are cached in browser-session storage, with at most 100 entries. Successful definitions are reused for up to 24 hours during that session; empty results for up to five minutes. Browser-session data clears on a browser restart. Saved Wiktionary definitions also retain source attribution, the source revision when available, and the [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) licence link.
+Wiktionary and MyMemory use separate caches in browser-session storage, each with at most 100 entries. Successful results are reused for up to 24 hours during that session; empty results for up to five minutes. Browser-session data clears on a browser restart. Saved Wiktionary definitions also retain source attribution, the source revision when available, and the [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) licence link. Saved MyMemory translations retain provider attribution without a Wiktionary licence label.
 
-The current extension has no analytics, advertising, account system, or developer-operated lookup server. Only select or type text you are comfortable sending to the dictionary and, when used, the speech service.
+The current extension has no analytics, advertising, account system, or developer-operated lookup server. Only select or type text you are comfortable sending to the dictionary, fallback translation provider, and, when used, the speech service.
 
 ## Permissions explained
 
@@ -105,12 +117,13 @@ The current extension has no analytics, advertising, account system, or develope
 | Scripting | Runs that small language-label check after your right-click lookup. |
 | Access to `https://www.verbformen.com/*` | Retrieves dictionary entries, search results, and pronunciation recordings. |
 | Access to `https://en.wiktionary.org/*` | Retrieves an English definition when a verified Verbformen entry has no English gloss. |
+| Access to `https://api.mymemory.translated.net/*` | Retrieves a basic German-to-English translation when no dictionary entry can be retrieved. |
 
 Currywurst does not request access to all websites, your browsing history, or the browser's cookie-management API.
 
 ## Security and reporting
 
-Currywurst uses bundled JavaScript and the browser's standard Manifest V3 security policy. Fetched dictionary HTML is processed as data; extracted text is escaped before it is displayed in the popup. Grammar lookup destinations and dictionary-entry links are checked against Verbformen; fallback API requests and definition links are restricted to English Wiktionary. The permission for a second host is used for missing definitions, with attribution displayed separately from the grammar source.
+Currywurst uses bundled JavaScript and the browser's standard Manifest V3 security policy. Fetched dictionary HTML is processed as data; extracted text is escaped before it is displayed in the popup. Grammar lookup destinations and dictionary-entry links are checked against Verbformen. Definition requests are restricted to English Wiktionary, and basic translation requests to MyMemory's API. Their results are displayed as escaped text with provider attribution.
 
 The project includes automated behavior tests, but these are not an independent security audit or a guarantee that the extension is free of vulnerabilities. Browser testing, review of external HTML handling, and security scanning remain important before each public release. A passing test result should be associated with the exact version or commit that was checked.
 

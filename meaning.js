@@ -1,5 +1,64 @@
 const MEANING_LICENSE = "https://creativecommons.org/licenses/by-sa/4.0/";
 
+function decodeTranslationText(text) {
+  const entities = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " " };
+  return text.replace(/&(#x[\da-f]+|#\d+|amp|quot|apos|lt|gt|nbsp);/gi, (entity, name) => {
+    if (!name.startsWith("#")) return entities[name.toLowerCase()];
+    const code = /^#x/i.test(name) ? parseInt(name.slice(2), 16) : Number(name.slice(1));
+    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : entity;
+  }).replace(/\s+/g, " ").trim();
+}
+
+function createBasicTranslationFallback({ fetchImpl = fetch, storage, timeoutMs = 4000 } = {}) {
+  const cache = new Map();
+  return async function translateGerman(word, parentSignal) {
+    const text = word.normalize("NFC").trim();
+    if (!text || text.length > 160 || new TextEncoder().encode(text).length > 500 || /[\u0000-\u001f\u007f]/.test(text)) return null;
+    const controller = new AbortController();
+    const cancel = () => controller.abort(parentSignal.reason);
+    parentSignal?.throwIfAborted();
+    parentSignal?.addEventListener("abort", cancel, { once: true });
+    let onAbort;
+    const aborted = new Promise((resolve, reject) => {
+      onAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    const timer = setTimeout(() => controller.abort(new Error("Translation timed out")), timeoutMs);
+    const work = async () => {
+      if (!cache.size && storage) {
+        const { translationCache = {} } = await storage.get("translationCache").catch(() => ({}));
+        for (const [key, item] of Object.entries(translationCache).slice(-100)) if (item?.expires > Date.now()) cache.set(key, item);
+      }
+      controller.signal.throwIfAborted();
+      const cached = cache.get(text);
+      if (cached?.expires > Date.now()) return cached.value;
+      const url = new URL("https://api.mymemory.translated.net/get");
+      url.search = new URLSearchParams({ q: text, langpair: "de|en" }).toString();
+      const response = await fetchImpl(url.href, { signal: controller.signal, credentials: "omit", referrerPolicy: "no-referrer", headers: { Accept: "application/json" } });
+      if (response.url && new URL(response.url).origin !== url.origin) throw new Error("Unexpected translation-source redirect.");
+      if (!response.ok) return null;
+      const payload = await response.json();
+      controller.signal.throwIfAborted();
+      const raw = payload.responseData?.translatedText;
+      if (Number(payload.responseStatus) !== 200 || payload.quotaFinished || typeof raw !== "string" || raw.length > 4000) return null;
+      const meaning = decodeTranslationText(raw);
+      const value = meaning && meaning.toLocaleLowerCase("de-DE") !== text.toLocaleLowerCase("de-DE")
+        ? { meaning, meaningSource: { provider: "MyMemory", url: "https://mymemory.translated.net/" } } : null;
+      cache.set(text, { value, expires: Date.now() + (value ? 86400000 : 300000) });
+      while (cache.size > 100) cache.delete(cache.keys().next().value);
+      if (storage) storage.set({ translationCache: Object.fromEntries(cache) }).catch(() => {});
+      return value;
+    };
+    try { return await Promise.race([work(), aborted]); }
+    catch (error) { if (parentSignal?.aborted) throw error; return null; }
+    finally {
+      clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", cancel);
+      controller.signal.removeEventListener("abort", onAbort);
+    }
+  };
+}
+
 function wiktionaryTitle(href) {
   try {
     const url = new URL(href, "https://en.wiktionary.org");

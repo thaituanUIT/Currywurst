@@ -1,18 +1,24 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 // Run from the repository root. Only these files go into the user download.
 const files = [
-  'manifest.json', 'background.js', 'parser.js', 'lookup.js', 'saved-words.js', 'meaning.js',
+  'manifest.json', 'i18n.js', 'background.js', 'parser.js', 'lookup.js', 'saved-words.js', 'meaning.js',
   'popup.html', 'popup.css', 'popup.js', 'icon.svg',
   'icons/icon-16.png', 'icons/icon-48.png', 'icons/icon-128.png',
   'README.md', 'CHANGELOG.md',
 ];
 
 try {
-  const { version } = JSON.parse(readFileSync('manifest.json', 'utf8'));
+  const { version, default_locale: defaultLocale } = JSON.parse(readFileSync('manifest.json', 'utf8'));
+  const localeFiles = readdirSync('_locales', { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && /^[a-zA-Z]{2,3}(?:_[a-zA-Z0-9]+)*$/.test(entry.name))
+    .map(entry => `_locales/${entry.name}/messages.json`).sort();
+  if (!defaultLocale || !localeFiles.includes(`_locales/${defaultLocale}/messages.json`)) throw new Error('The default locale needs a messages.json catalog.');
+  for (const file of localeFiles) JSON.parse(readFileSync(file, 'utf8'));
+  files.push(...localeFiles);
   const tag = process.argv[2];
   if (!/^\d+\.\d+\.\d+$/.test(version) || tag !== `v${version}`) {
     throw new Error(`Release tag must match manifest.json: expected v${version}, received ${tag || '(missing)'}.`);

@@ -1,0 +1,633 @@
+{
+  "extension_name": {
+    "message": "Currywurst",
+    "description": "Brand name. Keep Currywurst unchanged."
+  },
+  "extension_description": {
+    "message": "German-English lookups with pronunciation, grammar, saved words, and translation fallback."
+  },
+  "action_title": {
+    "message": "Currywurst · German Word Lookup"
+  },
+  "popup_title": {
+    "message": "Currywurst · German dictionary"
+  },
+  "ui_locale": {
+    "message": "en",
+    "description": "Language of this catalog, used for the popup HTML lang attribute."
+  },
+  "ui_direction": {
+    "message": "ltr",
+    "description": "Text direction of this catalog: ltr or rtl."
+  },
+  "context_lookup": {
+    "message": "Look up with Currywurst: %s",
+    "description": "Keep %s unchanged; the browser inserts the selected text there."
+  },
+  "views_label": {
+    "message": "Dictionary views"
+  },
+  "lookup_tab": {
+    "message": "Lookup"
+  },
+  "saved_tab": {
+    "message": "Saved"
+  },
+  "lookup_button": {
+    "message": "Look up"
+  },
+  "undo_button": {
+    "message": "Undo"
+  },
+  "search_german_label": {
+    "message": "YOUR GERMAN WORD"
+  },
+  "search_english_label": {
+    "message": "YOUR ENGLISH WORD"
+  },
+  "german_word_label": {
+    "message": "German word"
+  },
+  "english_word_label": {
+    "message": "English word"
+  },
+  "mode_to_english_label": {
+    "message": "German to English. Click to switch to English to German"
+  },
+  "mode_to_german_label": {
+    "message": "English to German. Click to switch to German to English"
+  },
+  "mode_toggle_title": {
+    "message": "Click to reverse direction"
+  },
+  "empty_lookup_hint": {
+    "message": "Type a word, or select text and right-click to look it up."
+  },
+  "restored_lookup_hint": {
+    "message": "Press Look up to search this word again."
+  },
+  "saved_list_label": {
+    "message": "Saved words"
+  },
+  "loading_saved": {
+    "message": "Loading saved words…"
+  },
+  "empty_saved": {
+    "message": "No saved words yet."
+  },
+  "save_button": {
+    "message": "Save"
+  },
+  "saved_button": {
+    "message": "Saved"
+  },
+  "saving_button": {
+    "message": "Saving…"
+  },
+  "already_saved_title": {
+    "message": "Already saved"
+  },
+  "save_word_title": {
+    "message": "Save this word"
+  },
+  "delete_word_title": {
+    "message": "Delete word"
+  },
+  "delete_word_label": {
+    "message": "Delete $WORD$",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "deleted_word": {
+    "message": "Deleted $WORD$.",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "saved_count": {
+    "message": "$COUNT$/$LIMIT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "limit": {
+        "content": "$2"
+      }
+    }
+  },
+  "saved_access_error": {
+    "message": "Could not access saved words. Please try again."
+  },
+  "saved_word_required": {
+    "message": "A word and its English meaning are required."
+  },
+  "saved_read_error": {
+    "message": "Could not read your saved words."
+  },
+  "saved_list_full": {
+    "message": "List full. Delete a word to save another."
+  },
+  "saved_unknown_action": {
+    "message": "Unknown saved-word action."
+  },
+  "meaning_from": {
+    "message": "Meaning from $PROVIDER$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "translation_from": {
+    "message": "Translation from $PROVIDER$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "dictionary_address_error": {
+    "message": "Unexpected dictionary address."
+  },
+  "dictionary_redirect_error": {
+    "message": "Unexpected dictionary redirect."
+  },
+  "dictionary_http_error": {
+    "message": "Verbformen returned HTTP $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "dictionary_search_address_error": {
+    "message": "Unexpected dictionary search address."
+  },
+  "finding_translation": {
+    "message": "Finding a translation…"
+  },
+  "no_auto_match": {
+    "message": "No dictionary entry or translation found. Try another spelling or choose a direction using the language button above."
+  },
+  "no_german_match": {
+    "message": "No dictionary entry or translation found. Try another spelling or switch to EN → DE."
+  },
+  "noun_variant_not_found": {
+    "message": "This noun variant could not be found."
+  },
+  "entry_unverified": {
+    "message": "This entry could not be verified."
+  },
+  "saved_word_not_found": {
+    "message": "This saved word could not be found."
+  },
+  "entry_load_error": {
+    "message": "Could not load this entry. Please try again."
+  },
+  "noun_load_error": {
+    "message": "Could not load this noun variant. Please try again."
+  },
+  "lookup_timeout": {
+    "message": "Lookup timed out. Please try again."
+  },
+  "lookup_failed": {
+    "message": "Lookup failed. Please try again."
+  },
+  "retry_button": {
+    "message": "Retry"
+  },
+  "loading_degree": {
+    "message": "Loading $DEGREE$ forms…",
+    "placeholders": {
+      "degree": {
+        "content": "$1"
+      }
+    }
+  },
+  "loading_entry": {
+    "message": "Loading $TYPE$ entry…",
+    "placeholders": {
+      "type": {
+        "content": "$1"
+      }
+    }
+  },
+  "loading_variant": {
+    "message": "Loading $WORD$…",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "loading_grammar": {
+    "message": "Loading grammar for $WORD$…",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "loading_detection": {
+    "message": "Checking language and meaning…"
+  },
+  "loading_english": {
+    "message": "Finding translations for $WORD$…",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "loading_german": {
+    "message": "Looking up $WORD$…",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "dictionary_type": {
+    "message": "dictionary"
+  },
+  "dictionary_entry": {
+    "message": "Entry"
+  },
+  "play_pronunciation_label": {
+    "message": "Play $WORD$ pronunciation",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "play_word_title": {
+    "message": "Play $WORD$",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "back_results": {
+    "message": "Back to results"
+  },
+  "english_to_german_heading": {
+    "message": "ENGLISH → GERMAN"
+  },
+  "one_german_match": {
+    "message": "$COUNT$ German match",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "many_german_matches": {
+    "message": "$COUNT$ German matches",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "no_english_matches": {
+    "message": "No German matches found."
+  },
+  "open_grammar_label": {
+    "message": "Open grammar for $WORD$",
+    "placeholders": {
+      "word": {
+        "content": "$1"
+      }
+    }
+  },
+  "forms_grammar": {
+    "message": "Forms & grammar"
+  },
+  "view_meaning": {
+    "message": "View meaning"
+  },
+  "noun_articles_label": {
+    "message": "Noun articles"
+  },
+  "adjective_degree_label": {
+    "message": "Adjective degree"
+  },
+  "dictionary_entries_label": {
+    "message": "Dictionary entries"
+  },
+  "english_meaning_unavailable": {
+    "message": "English meaning unavailable."
+  },
+  "finding_english_meaning": {
+    "message": "Finding English meaning…"
+  },
+  "speech_unavailable": {
+    "message": "Speech playback is unavailable in this browser."
+  },
+  "speech_error": {
+    "message": "Could not play this word. Check your browser's speech voices."
+  },
+  "entry_choice_label": {
+    "message": "$TYPE$ · $WORD$",
+    "placeholders": {
+      "type": {
+        "content": "$1"
+      },
+      "word": {
+        "content": "$2"
+      }
+    }
+  },
+  "grammar_verb": {
+    "message": "verb"
+  },
+  "grammar_noun": {
+    "message": "noun"
+  },
+  "grammar_adjective": {
+    "message": "adjective"
+  },
+  "grammar_adverb": {
+    "message": "adverb"
+  },
+  "grammar_pronoun": {
+    "message": "pronoun"
+  },
+  "grammar_article": {
+    "message": "article"
+  },
+  "grammar_preposition": {
+    "message": "preposition"
+  },
+  "grammar_conjunction": {
+    "message": "conjunction"
+  },
+  "grammar_particle": {
+    "message": "particle"
+  },
+  "grammar_numeral": {
+    "message": "numeral"
+  },
+  "grammar_interjection": {
+    "message": "interjection"
+  },
+  "grammar_irregular": {
+    "message": "irregular"
+  },
+  "grammar_regular": {
+    "message": "regular"
+  },
+  "grammar_separable": {
+    "message": "separable"
+  },
+  "grammar_inseparable": {
+    "message": "inseparable"
+  },
+  "grammar_not_separable": {
+    "message": "not separable"
+  },
+  "grammar_masculine": {
+    "message": "masculine"
+  },
+  "grammar_feminine": {
+    "message": "feminine"
+  },
+  "grammar_neutral": {
+    "message": "neutral"
+  },
+  "grammar_neuter": {
+    "message": "neuter"
+  },
+  "grammar_strong": {
+    "message": "strong"
+  },
+  "grammar_weak": {
+    "message": "weak"
+  },
+  "grammar_mixed": {
+    "message": "mixed"
+  },
+  "grammar_positive": {
+    "message": "positive"
+  },
+  "grammar_comparative": {
+    "message": "comparative"
+  },
+  "grammar_superlative": {
+    "message": "superlative"
+  },
+  "grammar_not_comparable": {
+    "message": "not comparable"
+  },
+  "grammar_comparable": {
+    "message": "comparable"
+  },
+  "grammar_indeclinable": {
+    "message": "indeclinable"
+  },
+  "grammar_reflexive": {
+    "message": "reflexive"
+  },
+  "grammar_transitive": {
+    "message": "transitive"
+  },
+  "grammar_intransitive": {
+    "message": "intransitive"
+  },
+  "grammar_passive": {
+    "message": "passive"
+  },
+  "grammar_only_singular": {
+    "message": "only singular"
+  },
+  "grammar_only_plural": {
+    "message": "only plural"
+  },
+  "grammar_personal_pronoun": {
+    "message": "personal pronoun"
+  },
+  "grammar_reflexive_pronoun": {
+    "message": "reflexive pronoun"
+  },
+  "grammar_possessive": {
+    "message": "possessive"
+  },
+  "grammar_relative": {
+    "message": "relative"
+  },
+  "grammar_demonstrative": {
+    "message": "demonstrative"
+  },
+  "grammar_interrogative": {
+    "message": "interrogative"
+  },
+  "grammar_indefinite": {
+    "message": "indefinite"
+  },
+  "grammar_definite": {
+    "message": "definite"
+  },
+  "grammar_coordinating": {
+    "message": "coordinating"
+  },
+  "grammar_subordinating": {
+    "message": "subordinating"
+  },
+  "grammar_accusative": {
+    "message": "accusative"
+  },
+  "grammar_dative": {
+    "message": "dative"
+  },
+  "grammar_genitive": {
+    "message": "genitive"
+  },
+  "heading_positive": {
+    "message": "Positive"
+  },
+  "heading_comparative": {
+    "message": "Comparative"
+  },
+  "heading_superlative": {
+    "message": "Superlative"
+  },
+  "heading_indicative": {
+    "message": "Indicative"
+  },
+  "heading_subjunctive": {
+    "message": "Subjunctive"
+  },
+  "heading_imperative": {
+    "message": "Imperative"
+  },
+  "heading_infinitive_participle": {
+    "message": "Infinitive/Participle"
+  },
+  "heading_infinitive": {
+    "message": "Infinitive"
+  },
+  "heading_infinitive_i": {
+    "message": "Infinitive I"
+  },
+  "heading_infinitive_ii": {
+    "message": "Infinitive II"
+  },
+  "heading_participle": {
+    "message": "Participle"
+  },
+  "heading_participle_i": {
+    "message": "Participle I"
+  },
+  "heading_participle_ii": {
+    "message": "Participle II"
+  },
+  "heading_present": {
+    "message": "Present"
+  },
+  "heading_imperfect": {
+    "message": "Imperfect"
+  },
+  "heading_present_subj": {
+    "message": "Present Subj."
+  },
+  "heading_imperf_subj": {
+    "message": "Imperf. Subj."
+  },
+  "heading_perfect": {
+    "message": "Perfect"
+  },
+  "heading_pluperf": {
+    "message": "Pluperf."
+  },
+  "heading_future_i": {
+    "message": "Future I"
+  },
+  "heading_future_perfect": {
+    "message": "Future Perfect"
+  },
+  "heading_perf_subj": {
+    "message": "Perf. Subj."
+  },
+  "heading_pluperf_subj": {
+    "message": "Pluperf. Subj."
+  },
+  "heading_future_subj": {
+    "message": "Future Subj."
+  },
+  "heading_fut_perf_subj": {
+    "message": "Fut. Perf. Subj."
+  },
+  "heading_conditional_wurde": {
+    "message": "Conditional (würde)"
+  },
+  "heading_subjunctive_ii": {
+    "message": "Subjunctive II"
+  },
+  "heading_past_cond": {
+    "message": "Past Cond."
+  },
+  "heading_singular": {
+    "message": "Singular"
+  },
+  "heading_plural": {
+    "message": "Plural"
+  },
+  "heading_masculine": {
+    "message": "Masculine"
+  },
+  "heading_feminine": {
+    "message": "Feminine"
+  },
+  "heading_neutral": {
+    "message": "Neutral"
+  },
+  "heading_neuter": {
+    "message": "Neuter"
+  },
+  "heading_strong_declension": {
+    "message": "Strong declension"
+  },
+  "heading_weak_declension": {
+    "message": "Weak declension"
+  },
+  "heading_mixed_declension": {
+    "message": "Mixed declension"
+  },
+  "heading_predicative_use": {
+    "message": "Predicative use"
+  },
+  "heading_conjugation": {
+    "message": "Conjugation"
+  },
+  "heading_declension": {
+    "message": "Declension"
+  },
+  "heading_nom": {
+    "message": "Nom."
+  },
+  "heading_gen": {
+    "message": "Gen."
+  },
+  "heading_dat": {
+    "message": "Dat."
+  },
+  "heading_acc": {
+    "message": "Acc."
+  },
+  "heading_masc": {
+    "message": "Masc."
+  },
+  "heading_fem": {
+    "message": "Fem."
+  },
+  "heading_neut": {
+    "message": "Neut."
+  }
+}

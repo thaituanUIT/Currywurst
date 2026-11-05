@@ -133,6 +133,50 @@ test('comparison choices are source-linked, normalized, and exclude foreign link
   assert.equal(parser.isGermanEntryMatch({ title: 'German adjective ausgesprochen', lemma: 'ausgesprochen', meaning: 'pronounced', comparisonVariants: variants }, 'ausgesprochener'), true);
 });
 
+test('dictionary-page type links retain klein and das Klein without navigation or degree links', () => {
+  const links = [
+    ['noun Klein, das', '/declension/nouns/Klein.htm'],
+    ['noun Klein, das', '/declension/nouns/Klein.htm'],
+    ['positive klein', '/declension/adjectives/klein.htm'],
+    ['comparative kleiner', '/declension/adjectives/kleiner.htm'],
+    ['Nouns', '/declension/nouns/'],
+    ['noun Klein', 'https://evil.example/declension/nouns/Klein.htm'],
+    ['noun falsch', '/declension/adjectives/falsch.htm'],
+    ['noun Klein', '/declension/nouns/Klein.pdf'],
+    ['noun click here!', '/declension/nouns/Klein.htm'],
+  ].map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  const found = plain(parser.extractWordTypeVariants({ querySelectorAll: () => links }, 'klein', 'adjective', 'https://www.verbformen.com/declension/adjectives/klein.htm'));
+  assert.deepEqual(found.map(entry => [entry.lemma, entry.partOfSpeech]), [['klein', 'adjective'], ['Klein', 'noun']]);
+  assert.equal(found[1].label, 'noun · das Klein');
+});
+
+test('comparison degrees share one adjective type identity while the noun remains separate', () => {
+  const adjective = url => ({ lemma: 'klein', partOfSpeech: 'adjective', label: 'adjective · klein', url: `https://www.verbformen.com/declension/adjectives/${url}.htm` });
+  const noun = { lemma: 'Klein', partOfSpeech: 'noun', label: 'noun · Klein', url: 'https://www.verbformen.com/declension/nouns/Klein.htm' };
+  const merged = parser.mergeEntryChoices([adjective('klein'), noun], [adjective('kleiner')], [adjective('kleinsten')]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].url, adjective('klein').url);
+  const current = parser.extractWordTypeVariants({ querySelectorAll: () => [] }, 'klein', 'adjective', adjective('kleiner').url, adjective('klein').url);
+  assert.equal(current[0].url, adjective('klein').url);
+});
+
+test('query pages use a source-linked current entry so users can return from another type', () => {
+  const links = [['adjective klein', '/declension/adjectives/klein.htm'], ['neutral Klein, das', '/declension/nouns/Klein.htm']]
+    .map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  const found = parser.extractWordTypeVariants({ querySelectorAll: () => links }, 'Klein', 'noun', 'https://www.verbformen.com/?w=Klein', 'https://www.verbformen.com/declension/nouns/Klein.htm');
+  assert.deepEqual(plain(found).map(entry => entry.partOfSpeech), ['noun', 'adjective']);
+  assert.ok(found.every(entry => entry.url.endsWith('.htm')));
+});
+
+test('word-type links normalize split verb names and keep the current URL in its own type', () => {
+  const links = [['verb auf · rufen', '/conjugation/aufrufen.htm'], ['klein', '/declension/adjectives/klein.htm']]
+    .map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  const found = parser.extractWordTypeVariants({ querySelectorAll: () => links }, 'klein', 'adjective', 'https://www.verbformen.com/declension/nouns/Klein.htm');
+  assert.equal(found[0].partOfSpeech, 'adjective');
+  assert.equal(found[0].url, 'https://www.verbformen.com/declension/adjectives/klein.htm');
+  assert.equal(found[1].lemma, 'aufrufen');
+});
+
 test('a trusted lexical link can establish identity without an English meaning', () => {
   const entry = { title: 'German noun Lernende', lemma: 'Lernende', meaning: '', inflectionTables: [] };
   assert.equal(parser.isGermanEntryMatch(entry, 'Lernende'), false);

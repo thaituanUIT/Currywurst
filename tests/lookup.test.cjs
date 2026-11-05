@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
+const { browserI18n, english } = require('./helpers/i18n.cjs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const parserContext = vm.createContext({ URL });
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
@@ -9,15 +10,22 @@ vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 function makeElement(dataset = {}) {
   return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; }, insertAdjacentHTML(position, html) { this.innerHTML += html; } };
 }
-function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null) {
+function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null, locale = {}) {
   const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry', '#lookup-tab', '#saved-tab', '#lookup-view', '#saved-view', '#saved-count', '#saved-list', '#saved-status', '#undo-delete', '#save-word', '#save-status'].map(id => [id, makeElement()]));
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
   const entryButton = makeElement({ entry: '0' });
   const variantButton = makeElement({ nounVariant: '1' });
-  let savedWordButtons = [], deleteButtons = [], degreeButtons = [], choiceButtons = [];
+  let savedWordButtons = [], deleteButtons = [], degreeButtons = [], choiceButtons = [], nounButtons = [];
   elements['#result'].querySelectorAll = selector => {
     if (selector === '[data-entry]') return [entryButton];
-    if (selector === '[data-noun-variant]' && elements['#result'].innerHTML.includes('data-noun-variant')) return [variantButton];
+    if (selector === '[data-noun-variant]') {
+      nounButtons = [...elements['#result'].innerHTML.matchAll(/data-noun-variant="(\d+)" aria-pressed="(true|false)"/g)].map(match => {
+        const button = match[1] === '1' ? variantButton : makeElement({ nounVariant: match[1] });
+        button.setAttribute('aria-pressed', match[2]);
+        return button;
+      });
+      return nounButtons;
+    }
     if (selector === '[data-degree]' || selector === '[data-entry-choice]') {
       const attribute = selector === '[data-degree]' ? 'degree' : 'entry-choice';
       const dataset = attribute === 'degree' ? 'degree' : 'entryChoice';
@@ -48,8 +56,8 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   };
   const requests = [], saved = [];
   const context = vm.createContext({
-    document: { documentElement: { dataset: {} }, querySelector: id => elements[id] }, window: {},
-    chrome: { storage: {
+    document: { documentElement: { dataset: {} }, querySelectorAll: () => [], querySelector: id => elements[id] }, window: {},
+    chrome: { i18n: browserI18n(locale), storage: {
       local: { get: async () => ({ ...savedState }), set: async value => { saved.push(value); Object.assign(savedState, value); } },
       session: {
         get: async () => ({ ...sessionState }),
@@ -63,22 +71,26 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
     parseEnglishResults: () => entries,
     isGermanEntryMatch: parserContext.isGermanEntryMatch,
     dictionaryEntryUrl: parserContext.dictionaryEntryUrl,
+    normalizeGermanForm: parserContext.normalizeGermanForm,
+    mergeEntryChoices: parserContext.mergeEntryChoices,
     parseGermanSearchEntries: () => [],
     parseVerbformen: (_, word) => ({ word, lemma: word, title: `Noun ${word}`, ipa: [], audio: [], inflectionTables: [], meaning: word }),
   });
+  vm.runInContext(fs.readFileSync('i18n.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('saved-words.js', 'utf8'), context);
   context.createEnglishMeaningFallback = () => meaningLookup;
+  context.createBasicTranslationFallback = () => basicLookup;
   const store = context.createSavedWordsStore(context.chrome.storage.local);
   context.chrome.runtime = { sendMessage: async message => {
     try {
       const argument = message.action === 'remove' ? message.id : message.entry;
       return { ok: true, ...await store[message.action](argument) };
-    } catch (error) { return { ok: false, error: error.message }; }
+    } catch (error) { return { ok: false, error: error.message, messageKey: error.messageKey }; }
   } };
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
   const respond = (index) => requests[index].resolve({ ok: true, text: async () => '', url: requests[index].url });
-  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons };
+  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons };
 }
 
 test('latest search wins and manual searches persist', async () => {
@@ -95,6 +107,48 @@ test('latest search wins and manual searches persist', async () => {
   assert.equal(h.elements['#result'].innerHTML, latest);
   assert.match(latest, /neu/);
   assert.equal(h.saved.at(-1).lookupWord, 'neu');
+});
+
+test('localized popup messages leave lookup directions and dictionary content unchanged', async () => {
+  const locale = {
+    ui_locale: { message: 'zz' },
+    mode_to_english_label: { message: 'Direction DE EN' },
+    mode_to_german_label: { message: 'Direction EN DE' },
+    search_german_label: { message: 'SOURCE WORD' },
+    grammar_noun: { message: 'NOUN LABEL' },
+    heading_singular: { message: 'SINGULAR LABEL' },
+    save_button: { message: 'Keep' },
+    loading_german: { ...english.loading_german, message: 'Search: $WORD$' },
+  };
+  const h = harness({}, {}, async () => null, async () => null, locale);
+  await tick();
+  assert.equal(h.context.document.documentElement.lang, 'zz');
+  assert.equal(h.elements['.search-label'].textContent, 'SOURCE WORD');
+  const pending = h.context.runLookup('Haus');
+  assert.match(h.elements['#result'].innerHTML, /Search: Haus/);
+  assert.equal(new URL(h.requests[0].url).searchParams.get('w'), 'Haus');
+  assert.equal(new URL(h.requests[0].url).searchParams.get('l'), '11');
+  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Haus', { word, sourceUrl, title: 'German noun Haus', meaning: 'house', article: 'das', inflectionTables: [{ title: 'Singular', rows: [['Nom.', 'das', 'Haus']], cells: [[{ header: false, colSpan: 1, rowSpan: 1 }, { header: false, colSpan: 1, rowSpan: 1 }, { header: false, colSpan: 1, rowSpan: 1 }]] }] });
+  h.respond(0);
+  await pending;
+  assert.match(h.elements['#result'].innerHTML, /NOUN LABEL/);
+  assert.match(h.elements['#result'].innerHTML, /SINGULAR LABEL/);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss" lang="en">house/);
+  assert.match(h.elements['#result'].innerHTML, /lang="de">Haus/);
+  assert.equal(h.elements['#save-word'].textContent, 'Keep');
+  h.elements['#mode-toggle'].listeners.click();
+  assert.equal(h.context.document.documentElement.dataset.mode, 'en-de');
+  assert.equal(h.elements['#mode-toggle'].getAttribute('aria-label'), 'Direction EN DE');
+});
+
+test('localized audio labels escape both message text and selected words', async () => {
+  const h = harness({}, {}, async () => null, async () => null, {
+    play_pronunciation_label: { ...english.play_pronunciation_label, message: '<Listen> $WORD$' },
+  });
+  await tick();
+  const html = h.context.speakerButton('<img src=x>', 'de-DE');
+  assert.match(html, /aria-label="&lt;Listen&gt; &lt;img src=x&gt;"/);
+  assert.doesNotMatch(html, /<Listen>|<img/);
 });
 
 test('mode switch clears the old word and waits for a new explicit search', async () => {
@@ -148,6 +202,140 @@ test('opening grammar and returning uses the English result list without refetch
   assert.equal(h.requests.length, 3);
   assert.match(h.elements['#result'].innerHTML, /German match/);
   assert.equal(h.saved.at(-1).lookupWord, 'small');
+});
+
+
+test('a missing Pommes entry shows a basic translation, audio, and saved provider without grammar or related entries', async () => {
+  const calls = [];
+  const h = harness({}, {}, async () => null, async (word, signal) => {
+    calls.push({ word, signal });
+    return { meaning: 'French fries', meaningSource: { provider: 'MyMemory', url: 'https://mymemory.translated.net/' } };
+  });
+  await tick();
+  h.context.lookupGermanEntry = async () => null;
+  await h.context.runLookup('Pommes');
+  assert.equal(calls[0].word, 'Pommes');
+  assert.match(h.elements['#result'].innerHTML, /French fries/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /Basic translation|grammar unavailable/);
+  assert.match(h.elements['#result'].innerHTML, /data-speak="Pommes"/);
+  assert.match(h.elements['#result'].innerHTML, /Translation from.*MyMemory/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /inflection-grid|Related entries|RELATED ENTRIES|CC BY-SA/);
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].lemma, 'Pommes');
+  assert.equal(h.savedState.savedWords[0].meaningSource.provider, 'MyMemory');
+  assert.equal(h.savedState.savedWords[0].partOfSpeech, '');
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.match(h.elements['#saved-list'].innerHTML, /MyMemory/);
+});
+
+test('a verified dictionary entry does not call the basic translation service', async () => {
+  let calls = 0;
+  const h = harness({}, {}, async () => null, async () => { calls++; });
+  await tick();
+  h.context.lookupGermanEntry = async () => ({ data: germanEntry('Haus'), sourceUrl: 'https://www.verbformen.com/declension/nouns/Haus.htm' });
+  await h.context.runLookup('Haus');
+  assert.equal(calls, 0);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /Basic translation/);
+});
+
+test('manual English searches never fall back to translating their input as German', async () => {
+  for (const serviceError of [false, true]) {
+    let calls = 0;
+    const h = harness({}, {}, async () => null, async () => { calls++; return { meaning: 'wrong direction' }; });
+    await tick();
+    h.context.setMode('en-de');
+    h.context.parseEnglishResults = () => [];
+    const pending = h.context.runLookup('unknownword');
+    if (serviceError) h.requests[0].resolve({ ok: false, status: 503, url: h.requests[0].url });
+    else {
+      h.respond(0);
+      await tick();
+      h.respond(1);
+    }
+    await pending;
+    assert.equal(calls, 0);
+    assert.doesNotMatch(h.elements['#result'].innerHTML, /wrong direction|id="save-word"/);
+    assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^English to German/);
+  }
+});
+
+test('a failed word-type tab keeps the current dictionary result and never invokes basic translation', async () => {
+  let calls = 0;
+  const h = harness({}, {}, async () => null, async () => { calls++; return { meaning: 'unrelated translation' }; });
+  await tick();
+  const entryChoices = kleinWordTypes();
+  h.context.renderGermanEntry(germanEntry('klein', { title: 'German adjective klein', partOfSpeech: 'adjective', meaning: 'small', entryChoices, sourceUrl: entryChoices[0].url }));
+  h.context.parseVerbformen = () => { throw new Error('Entry unavailable'); };
+  h.choiceButtons()[1].listeners.click();
+  h.respond(0);
+  await tick();
+  assert.equal(calls, 0);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss"[^>]*>small/);
+  assert.match(h.elements['#result'].innerHTML, /Could not load this entry/);
+});
+
+test('Verbformen connection errors can use the basic fallback, while unavailable services show no fabricated result', async () => {
+  const h = harness({}, {}, async () => null, async () => ({ meaning: 'French fries', meaningSource: { provider: 'MyMemory', url: 'https://mymemory.translated.net/' } }));
+  await tick();
+  h.context.lookupGermanEntry = async () => { throw new Error('Verbformen returned HTTP 503'); };
+  await h.context.runLookup('Pommes');
+  assert.match(h.elements['#result'].innerHTML, /French fries/);
+  const missing = harness();
+  await tick();
+  missing.context.lookupGermanEntry = async () => null;
+  await missing.context.runLookup('unknownword');
+  assert.match(missing.elements['#result'].innerHTML, /No dictionary entry or translation found/);
+  assert.doesNotMatch(missing.elements['#result'].innerHTML, /id="save-word"/);
+});
+
+test('a late basic translation cannot replace another word or survive a direction switch', async () => {
+  let finish, signal;
+  const h = harness({}, {}, async () => null, (word, pendingSignal) => { signal = pendingSignal; return new Promise(resolve => { finish = resolve; }); });
+  await tick();
+  h.context.lookupGermanEntry = async () => null;
+  const old = h.context.runLookup('Pommes');
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /Finding a translation/);
+  h.context.lookupGermanEntry = async () => ({ data: germanEntry('Haus'), sourceUrl: 'https://www.verbformen.com/declension/nouns/Haus.htm' });
+  await h.context.runLookup('Haus');
+  finish({ meaning: 'French fries' });
+  await old;
+  assert.equal(signal.aborted, true);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /French fries/);
+  h.context.lookupGermanEntry = async () => null;
+  const pending = h.context.runLookup('Pommes');
+  await tick();
+  h.elements['#mode-toggle'].listeners.click();
+  finish({ meaning: 'French fries' });
+  await pending;
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /French fries/);
+});
+
+test('automatic lookup uses the basic fallback only after German and English dictionary matching fail', async () => {
+  let calls = 0;
+  const h = harness({}, {}, async () => null, async () => { calls++; return { meaning: 'French fries' }; });
+  await tick();
+  h.context.lookupGermanEntry = async () => null;
+  h.context.parseEnglishResults = () => [];
+  const pending = h.context.runLookup('Pommes', null, { automatic: true, hint: 'de' });
+  await tick();
+  h.respond(0);
+  await tick();
+  h.respond(1);
+  await pending;
+  assert.equal(calls, 1);
+  assert.match(h.elements['#result'].innerHTML, /French fries/);
+  assert.match(h.elements['#mode-toggle'].getAttribute('aria-label'), /^German to English/);
+});
+
+test('basic translation output is escaped before rendering', async () => {
+  const h = harness({}, {}, async () => null, async () => ({ meaning: '<img src=x onerror=alert(1)>' }));
+  await tick();
+  h.context.lookupGermanEntry = async () => null;
+  await h.context.runLookup('Pommes');
+  assert.match(h.elements['#result'].innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /<img/);
 });
 
 test('browser restart restores the saved word and mode without replaying a lookup', async () => {
@@ -212,7 +400,8 @@ test('right-click exposes one automatic lookup and keeps manual direction unchan
   const installed = [], clicked = [], menus = [], saved = [], session = [];
   let opened = 0;
   const context = vm.createContext({ chrome: {
-    runtime: { onInstalled: { addListener: fn => installed.push(fn) }, onMessage: { addListener() {} } },
+    i18n: browserI18n(),
+    runtime: { onInstalled: { addListener: fn => installed.push(fn) }, onStartup: { addListener() {} }, onMessage: { addListener() {} } },
     contextMenus: { removeAll: fn => fn(), create: menu => menus.push(menu), onClicked: { addListener: fn => clicked.push(fn) } },
     storage: {
       local: { set: async value => saved.push(value) },
@@ -581,6 +770,112 @@ test('comparison degree buttons load only the chosen source page and save the po
   assert.equal(h.savedState.savedWords[0].sourceUrl, comparisons[0].url);
 });
 
+function kleinWordTypes() {
+  return [
+    { label: 'adjective · klein', lemma: 'klein', partOfSpeech: 'adjective', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' },
+    { label: 'noun · das Klein', lemma: 'Klein', partOfSpeech: 'noun', url: 'https://www.verbformen.com/declension/nouns/Klein.htm' },
+  ];
+}
+
+test('klein and das Klein keep independent meanings, grammar, saved types, and cached tabs', async () => {
+  const h = harness();
+  await tick();
+  const entryChoices = kleinWordTypes();
+  h.context.renderGermanEntry(germanEntry('klein', { word: 'kleinen', title: 'German adjective klein', partOfSpeech: 'adjective', article: '', meaning: 'small', sourceUrl: entryChoices[0].url, entryChoices }));
+  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Klein', { word, sourceUrl, title: 'German noun Klein', partOfSpeech: 'noun', article: 'das', meaning: 'giblets', inflectionTables: [{ title: 'Singular', rows: [['Nom.', 'das', 'Klein']], cells: [[{ header: false, colSpan: 1, rowSpan: 1 }, { header: false, colSpan: 1, rowSpan: 1 }, { header: false, colSpan: 1, rowSpan: 1 }]] }] });
+  h.choiceButtons()[1].listeners.click();
+  assert.match(h.elements['#result'].innerHTML, /Loading noun entry/);
+  assert.equal(h.requests[0].url, entryChoices[1].url);
+  h.respond(0);
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /giblets/);
+  assert.match(h.elements['#result'].innerHTML, /Singular/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /class="gloss"[^>]*>small/);
+  assert.equal(h.choiceButtons()[1].getAttribute('aria-pressed'), 'true');
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].lemma, 'Klein');
+  assert.equal(h.savedState.savedWords[0].partOfSpeech, 'noun');
+  h.choiceButtons()[0].listeners.click();
+  assert.equal(h.requests.length, 1);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss"[^>]*>small/);
+  assert.equal(h.choiceButtons()[0].getAttribute('aria-pressed'), 'true');
+  h.choiceButtons()[1].listeners.click();
+  assert.equal(h.requests.length, 1);
+  assert.match(h.elements['#result'].innerHTML, /giblets/);
+});
+
+test('a type switch rejects a redirect to the same spelling with the wrong word type', async () => {
+  const h = harness();
+  await tick();
+  const entryChoices = kleinWordTypes();
+  const adjective = germanEntry('klein', { title: 'German adjective klein', partOfSpeech: 'adjective', article: '', meaning: 'small', sourceUrl: entryChoices[0].url, entryChoices });
+  h.context.renderGermanEntry(adjective);
+  h.context.parseVerbformen = () => adjective;
+  h.choiceButtons()[1].listeners.click();
+  h.respond(0);
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /Could not load this entry/);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss"[^>]*>small/);
+  h.choiceButtons()[1].listeners.click();
+  assert.equal(h.requests.length, 2);
+  h.respond(1);
+  await tick();
+});
+
+test('a comparative page keeps its adjective type button selected', async () => {
+  const h = harness();
+  await tick();
+  h.context.renderGermanEntry(germanEntry('klein', { word: 'kleiner', title: 'German adjective kleiner', partOfSpeech: 'adjective', sourceUrl: 'https://www.verbformen.com/declension/adjectives/kleiner.htm', entryChoices: kleinWordTypes() }));
+  assert.equal(h.choiceButtons()[0].getAttribute('aria-pressed'), 'true');
+  assert.equal(h.choiceButtons()[1].getAttribute('aria-pressed'), 'false');
+});
+
+test('switching klein degrees repeatedly keeps one adjective button and one noun button', async () => {
+  const h = harness();
+  await tick();
+  const entryChoices = kleinWordTypes();
+  const comparisonVariants = ['klein', 'kleiner', 'kleinsten'].map((form, index) => ({ form, degree: ['positive', 'comparative', 'superlative'][index], label: ['Positive', 'Comparative', 'Superlative'][index], url: `https://www.verbformen.com/declension/adjectives/${form}.htm` }));
+  const adjective = extra => germanEntry('klein', { title: 'German adjective klein', partOfSpeech: 'adjective', meaning: 'small', sourceUrl: entryChoices[0].url, entryChoices, comparisonVariants, ...extra });
+  h.context.renderGermanEntry(adjective());
+  h.context.parseVerbformen = (_, word, sourceUrl) => adjective({ word, sourceUrl, entryChoices: [{ ...entryChoices[0], url: sourceUrl }] });
+  for (const degree of [1, 2]) {
+    h.degreeButtons()[degree].listeners.click();
+    h.respond(degree - 1);
+    await tick();
+    assert.equal(h.choiceButtons().length, 2);
+    assert.equal(h.choiceButtons()[0].getAttribute('aria-pressed'), 'true');
+    assert.equal(h.degreeButtons()[degree].getAttribute('aria-pressed'), 'true');
+  }
+  for (const degree of [1, 0, 2, 0]) {
+    h.degreeButtons()[degree].listeners.click();
+    assert.equal(h.choiceButtons().length, 2);
+    assert.equal(h.degreeButtons()[degree].getAttribute('aria-pressed'), 'true');
+  }
+  assert.equal(h.requests.length, 2);
+});
+
+test('switching noun gender retains links to other word types', async () => {
+  const h = harness();
+  await tick();
+  const variants = [
+    { article: 'der', lemma: 'Laut', label: 'der Laut', url: 'https://www.verbformen.com/declension/nouns/Laut.htm' },
+    { article: 'das', lemma: 'Laut', label: 'das Laut', url: 'https://www.verbformen.com/declension/nouns/Laut_neut.htm' },
+  ];
+  // Controlled variants test that the navigation survives a gender response
+  // without repeating its cross-type links; they do not assert dictionary usage.
+  const entryChoices = [
+    { lemma: 'Laut', partOfSpeech: 'noun', label: 'noun · Laut', url: variants[0].url },
+    { lemma: 'laut', partOfSpeech: 'adjective', label: 'adjective · laut', url: 'https://www.verbformen.com/declension/adjectives/laut.htm' },
+  ];
+  h.context.renderGermanEntry(germanEntry('Laut', { article: 'der', sourceUrl: variants[0].url, variants, entryChoices }));
+  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Laut', { word, sourceUrl, article: 'das', variants });
+  h.variantButton.listeners.click();
+  h.respond(0);
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /Dictionary entries/);
+  assert.match(h.elements['#result'].innerHTML, /adjective · laut/);
+});
+
 test('word-type choices can open an attested verb use without leaking adjective degrees', async () => {
   const h = harness();
   await tick();
@@ -588,7 +883,7 @@ test('word-type choices can open an attested verb use without leaking adjective 
     { label: 'adjective · ausgesprochen', lemma: 'ausgesprochen', partOfSpeech: 'adjective', url: 'https://www.verbformen.com/declension/adjectives/ausgesprochen.htm' },
     { label: 'verb · aussprechen', lemma: 'aussprechen', partOfSpeech: 'verb', url: 'https://www.verbformen.com/conjugation/aussprechen.htm' },
   ];
-  h.context.renderGermanEntry(germanEntry('ausgesprochen', { article: '', partOfSpeech: 'adjective', entryChoices: choices, sourceUrl: choices[0].url }));
+  h.context.renderGermanEntry(germanEntry('ausgesprochen', { title: 'German adjective ausgesprochen', article: '', partOfSpeech: 'adjective', entryChoices: choices, sourceUrl: choices[0].url }));
   h.context.parseVerbformen = (html, word, sourceUrl) => germanEntry('aussprechen', { word, sourceUrl, title: 'German verb aussprechen', partOfSpeech: 'verb', article: '', inflectionTables: [{ title: 'Participle II', rows: [['ausgesprochen']], cells: [[{ header: false, colSpan: 1, rowSpan: 1 }]] }] });
   h.choiceButtons()[1].listeners.click();
   assert.equal(h.requests[0].url, choices[1].url);
@@ -596,4 +891,131 @@ test('word-type choices can open an attested verb use without leaking adjective 
   await tick();
   assert.match(h.elements['#result'].innerHTML, /aussprechen/);
   assert.doesNotMatch(h.elements['#result'].innerHTML, /Adjective degree/);
+  h.choiceButtons()[0].listeners.click();
+  assert.equal(h.requests.length, 1);
+  assert.match(h.elements['#result'].innerHTML, /adjective/);
+  h.choiceButtons()[1].listeners.click();
+  assert.equal(h.requests.length, 1);
+  assert.match(h.elements['#result'].innerHTML, /aussprechen/);
+});
+
+test('gender tabs reuse both the initial query result and fetched alternate without another request', async () => {
+  const h = harness();
+  await tick();
+  const variants = [
+    { lemma: 'Vokabel', article: 'die', label: 'die Vokabel', url: 'https://www.verbformen.com/declension/nouns/Vokabel.htm' },
+    { lemma: 'Vokabel', article: 'das', label: 'das Vokabel', url: 'https://www.verbformen.com/declension/nouns/Vokabel_neut.htm' },
+  ];
+  const data = germanEntry('Vokabel', { word: 'Vokabeln', variants, sourceUrl: 'https://www.verbformen.com/?w=Vokabeln&l=11' });
+  h.context.renderGermanEntry(data);
+  h.context.parseVerbformen = (html, word, sourceUrl) => ({ ...data, word, sourceUrl, article: 'das', meaning: 'alternate meaning' });
+  h.nounButtons()[1].listeners.click();
+  h.respond(0);
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /alternate meaning/);
+  h.nounButtons()[0].listeners.click();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.nounButtons()[0].getAttribute('aria-pressed'), 'true');
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /alternate meaning|class="loading"/);
+  h.nounButtons()[1].listeners.click();
+  assert.equal(h.requests.length, 1);
+  assert.match(h.elements['#result'].innerHTML, /alternate meaning/);
+  assert.match(h.elements['#result'].innerHTML, /data-speak="Vokabeln"/);
+});
+
+function comparisonEntry() {
+  const comparisonVariants = ['positive', 'comparative', 'superlative'].map((degree, index) => ({ degree, label: degree, form: ['ausgesprochen', 'ausgesprochener', 'ausgesprochensten'][index], url: `https://www.verbformen.com/declension/adjectives/${['ausgesprochen', 'ausgesprochener', 'ausgesprochensten'][index]}.htm` }));
+  return germanEntry('ausgesprochen', { title: 'German adjective ausgesprochen', partOfSpeech: 'adjective', article: '', comparisonVariants, sourceUrl: comparisonVariants[0].url });
+}
+
+test('comparison tabs cache each degree and a new word flushes previous tab results', async () => {
+  const h = harness();
+  await tick();
+  const data = comparisonEntry();
+  h.context.renderGermanEntry(data);
+  h.context.parseVerbformen = (html, word, sourceUrl) => word === 'klein'
+    ? germanEntry('klein', { title: 'German adjective klein', partOfSpeech: 'adjective', article: '', sourceUrl })
+    : { ...data, word, sourceUrl: sourceUrl.includes('/?') ? data.sourceUrl : sourceUrl };
+  h.degreeButtons()[1].listeners.click();
+  h.respond(0);
+  await tick();
+  h.degreeButtons()[0].listeners.click();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.degreeButtons()[0].getAttribute('aria-pressed'), 'true');
+  h.degreeButtons()[1].listeners.click();
+  assert.equal(h.requests.length, 1);
+  h.degreeButtons()[2].listeners.click();
+  assert.equal(h.requests.length, 2);
+  h.respond(1);
+  await tick();
+  h.degreeButtons()[1].listeners.click();
+  h.degreeButtons()[2].listeners.click();
+  assert.equal(h.requests.length, 2);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /class="loading"/);
+  const different = h.context.runLookup('klein');
+  h.respond(2);
+  await different;
+  const returnToWord = h.context.runLookup('ausgesprochen');
+  h.respond(3);
+  await returnToWord;
+  h.degreeButtons()[1].listeners.click();
+  assert.equal(h.requests.length, 5);
+  assert.match(h.elements['#result'].innerHTML, /Loading comparative/);
+  h.respond(4);
+  await tick();
+});
+
+test('a late cancelled tab cannot repopulate the cache after a new lookup', async () => {
+  const h = harness();
+  await tick();
+  const data = comparisonEntry();
+  h.context.renderGermanEntry(data);
+  h.context.parseVerbformen = (html, word, sourceUrl) => word === 'klein'
+    ? germanEntry('klein', { title: 'German adjective klein', partOfSpeech: 'adjective', article: '', sourceUrl })
+    : { ...data, word, sourceUrl: sourceUrl.includes('/?') ? data.sourceUrl : sourceUrl };
+  h.degreeButtons()[1].listeners.click();
+  const different = h.context.runLookup('klein');
+  h.respond(1);
+  await different;
+  h.respond(0);
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /klein/);
+  const returnToWord = h.context.runLookup('ausgesprochen');
+  h.respond(2);
+  await returnToWord;
+  h.degreeButtons()[1].listeners.click();
+  assert.equal(h.requests.length, 4);
+  h.respond(3);
+  await tick();
+});
+
+test('failed tab loads are not cached and can be retried', async () => {
+  const h = harness();
+  await tick();
+  const data = comparisonEntry();
+  h.context.renderGermanEntry(data);
+  h.degreeButtons()[1].listeners.click();
+  h.requests[0].resolve({ ok: false, status: 503, url: h.requests[0].url });
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /Could not load this entry/);
+  h.context.parseVerbformen = (html, word, sourceUrl) => ({ ...data, word, sourceUrl });
+  h.degreeButtons()[1].listeners.click();
+  assert.equal(h.requests.length, 2);
+  h.respond(1);
+  await tick();
+  assert.equal(h.degreeButtons()[1].getAttribute('aria-pressed'), 'true');
+});
+
+test('table forms break between alternatives while article columns stay compact', async () => {
+  const h = harness();
+  await tick();
+  const form = 'ausgesprocheneren/ausgesprochneren⁴';
+  const rows = [['Nom.', 'die', form], ['Gen.', 'der', form], ['Dat.', 'den', form], ['Acc.', 'die', form]];
+  const table = { title: 'Plural', rows, cells: rows.map(row => row.map(() => ({ header: false, colSpan: 1, rowSpan: 1 }))) };
+  const html = h.context.renderInflections([table], 'adjective');
+  assert.match(html, /ausgesprocheneren\/<wbr>ausgesprochneren⁴/);
+  assert.match(html, /class="article-column"/);
+  assert.match(html, /table lang="de"/);
+  assert.equal(table.rows[0][2], form);
+  assert.doesNotMatch(h.context.renderInflections([table], 'verb'), /class="article-column"/);
 });

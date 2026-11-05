@@ -9,10 +9,12 @@ The [release workflow](../.github/workflows/release.yml) publishes a release whe
 
    ```sh
    node tests/parser-logic.test.cjs
+   node tests/i18n.test.cjs
    node tests/lookup-routing.test.cjs
    node tests/lookup.test.cjs
    node tests/saved-words.test.cjs
    node tests/meaning.test.cjs
+   node tests/translation.test.cjs
    node tests/release.test.cjs
    ```
 

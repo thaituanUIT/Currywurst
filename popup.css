@@ -134,9 +134,10 @@ button:active { transform: translateY(1px); }
 .group-title { margin: 0; padding-bottom: 7px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 650; color: var(--accent); }
 .inflection h3 { margin: 0 0 9px; font-size: 11px; font-weight: 650; color: var(--muted); }
 .table-scroll { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
-.inflection table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.inflection table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
 .inflection .label-column { width: 88px; }
-.inflection th, .inflection td { padding: 8px 10px; border-bottom: 1px solid #efe4d4; text-align: left; word-break: normal; overflow-wrap: normal; hyphens: auto; hyphenate-character: "-"; }
+.inflection .article-column { width: 64px; }
+.inflection th, .inflection td { padding: 8px 10px; border-bottom: 1px solid #efe4d4; text-align: left; white-space: normal; word-break: normal; overflow-wrap: anywhere; hyphens: auto; hyphenate-character: "-"; hyphenate-limit-chars: 6 3 3; }
 .inflection th { font-weight: 600; background: var(--table-head); color: #74573b; }
 .inflection tr:nth-child(even) td { background: var(--table-stripe); }
 .inflection tr:last-child > * { border-bottom: 0; }

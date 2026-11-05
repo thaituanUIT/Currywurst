@@ -2,6 +2,31 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## 1.5.1
+
+### Added
+
+- Browser-native localization support with an English message catalog for the popup, context menu, extension metadata, accessibility labels, status messages, and grammar controls. Package locale files in release downloads and document how to add translations. Only English ships initially; interface language stays independent of dictionary content and lookup direction.
+
+## 1.5.0
+
+### Added
+
+- Basic German-to-English translation via MyMemory when no Verbformen entry can be retrieved, including words such as **Pommes**. Keep pronunciation and saving, show provider attribution, and omit grammatical details that the translation source does not supply.
+- Source-linked word-type choices, including **klein** (adjective) and **das Klein** (noun), with separate meanings and grammar.
+- A bounded browser-session cache for fallback translations, plus the MyMemory host permission and updated data disclosure.
+
+### Changed
+
+- Reuse already visited gender, comparison-degree, and word-type tabs within the current lookup. Clear this in-memory cache on a new lookup or direction switch, and keep failed or cancelled loads out of it.
+- Keep result cards concise, with source attribution and essential feedback. Remove related-entry suggestions.
+
+### Fixed
+
+- Keep one adjective word-type button while switching comparison degrees, including **klein → kleiner → am kleinsten**. Use the positive adjective as the stable type entry and keep degree-specific pages in the comparison controls.
+- Recover regular **-t/-et** verb forms such as **verheiratet → verheiraten**, including forms without a **ge-** prefix. Prefer an exact adjective entry when available and verify every derived infinitive against the original selected form.
+- Keep grammar tables within their fixed width, with compact article columns, automatic hyphenation, and line-break opportunities between slash-separated forms.
+
 ## 1.4.0
 
 ### Fixed
