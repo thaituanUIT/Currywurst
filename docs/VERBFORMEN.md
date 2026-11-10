@@ -2,6 +2,16 @@
 
 Research and implementation notes for the public Verbformen website, reviewed on 2026-11-02. These are website routes, not a documented dictionary API.
 
+## Linked Woerter.net definitions
+
+Verbformen can link to word entries on `https://www.woerter.net/`. Confirmed source examples include [ohne as a conjunction](https://www.woerter.net/conjunctions/ohne.htm) and [ohne as a preposition](https://www.woerter.net/prepositions/ohne.htm). These pages provide the same English-labelled meaning and compact grammar/IPA structure used by the parser. Their headings use “Definition of German …”.
+
+`dictionary-sources.js` shares the request and word-entry URL checks between the popup, parser, and storage worker. Verbformen search routes remain allowed; Woerter.net is restricted to named word-type routes with `.htm` entries and their `meanings`/`translations` subpages. Arbitrary Woerter.net pages, other domains, insecure schemes, and credential-bearing URLs are rejected. Definition subpages canonicalize to the full word entry.
+
+Compact exact candidate links are recognized without requiring a full search card. Their route identifies the word type, but their definition must be fetched and verified against the original selection before display. A missing definition can fall through to another matching candidate; candidate pages are not fetched in bulk. Word-type alternatives from definition pages remain available on demand. The footer and saved source URLs retain the actual provider, and recordings can come from either dictionary host.
+
+The current Woerter.net page content was verified through indexed primary-source results; direct live requests and browser execution remain unavailable in this development environment. Automated tests cover the actual URL forms, matching and rejected definitions, redirects, type switching, storage, and packaging. Browser HTML fixtures cover the definition layout and compact candidate links.
+
 ## Word types and routes
 
 The [general search page](https://www.verbformen.com/search/) exposes nine word-type choices: verb, noun, adjective, adverb, article, pronoun, preposition, conjunction, and particle.

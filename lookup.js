@@ -29,7 +29,7 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
         if (isGermanEntryMatch(parsed, word)) return { data: { ...parsed, variants: mergeNounVariants(parsed, data.variants || []), entryChoices: mergeEntryChoices(parsed.entryChoices, data.entryChoices) }, sourceUrl: full.sourceUrl };
       }
     }
-    return { data: { ...data, word }, sourceUrl };
+    return data.linkOnly ? null : { data: { ...data, word }, sourceUrl };
   };
   const inspect = async (url) => {
     const page = await load(url);
@@ -46,14 +46,14 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
       return [choice];
     }));
     if (directMatch) return completeEntry({ ...data, entryChoices }, page.sourceUrl);
-    const card = cards[0];
-    if (card) {
+    for (const card of cards) {
       const variants = cards.filter((entry) => entry.data.lemma.toLowerCase() === card.data.lemma.toLowerCase()).flatMap((entry) => {
         const article = entry.data.article || entry.label?.match(/^(der|die|das)\s/i)?.[1];
         const url = dictionaryEntryUrl(entry.detailUrl || entry.url, page.sourceUrl);
         return article && url ? [{ article, label: `${article} ${entry.data.lemma}`, lemma: entry.data.lemma, url }] : [];
       });
       const completed = await completeEntry({ ...card.data, variants: mergeNounVariants(card.data, variants) }, page.sourceUrl, card.detailUrl);
+      if (!completed) continue;
       completed.data.entryChoices = mergeEntryChoices(completed.data.entryChoices, entryChoices);
       return completed;
     }
@@ -206,7 +206,8 @@ function fullDictionaryEntryUrl(href, baseUrl) {
   if (!accepted) return null;
   const url = new URL(accepted);
   const parts = url.pathname.split("/").filter(Boolean);
-  if (parts[0] === "conjugation") url.pathname = `/conjugation/${parts.at(-1)}`;
+  if (url.origin === "https://www.woerter.net") url.pathname = `/${parts[0]}/${parts.at(-1)}`;
+  else if (parts[0] === "conjugation") url.pathname = `/conjugation/${parts.at(-1)}`;
   else url.pathname = `/declension/${parts[1]}/${parts.at(-1)}`;
   return url.href;
 }

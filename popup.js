@@ -233,7 +233,7 @@ function setMode(nextMode) {
   modeToggle.setAttribute("aria-label", t(english ? "mode_to_german_label" : "mode_to_english_label"));
   searchLabel.textContent = t(english ? "search_english_label" : "search_german_label");
   input.setAttribute("aria-label", t(english ? "english_word_label" : "german_word_label"));
-  sourceLink.href = english ? "https://www.verbformen.com/en-de/" : "https://www.verbformen.com/";
+  setSourceLink(english ? "https://www.verbformen.com/en-de/" : "https://www.verbformen.com/");
 }
 
 function renderEmptyState() {
@@ -262,6 +262,13 @@ function cancelLookup() {
 function stopMeaningLookup() {
   activeMeaningController?.abort();
   activeMeaningController = undefined;
+}
+
+function setSourceLink(href) {
+  const accepted = dictionaryRequestUrl(href) || "https://www.verbformen.com/";
+  sourceLink.href = accepted;
+  const label = new URL(accepted).origin === "https://www.woerter.net" ? "Woerter.net" : "Verbformen";
+  sourceLink.innerHTML = `${label} ${uiIcon("arrow-up-right")}`;
 }
 
 function meaningAttribution(value) {
@@ -319,14 +326,14 @@ function loadMissingMeaning(data, backState, message) {
 }
 
 async function fetchPage(url, controller, options = {}) {
-  if (new URL(url).origin !== "https://www.verbformen.com") throw new Error(t("dictionary_address_error"));
-  const response = await fetch(url, { ...options, headers: { Accept: "text/html", ...options.headers }, signal: controller.signal });
+  if (!dictionaryRequestUrl(url)) throw new Error(t("dictionary_address_error"));
+  const response = await fetch(url, { ...options, headers: { Accept: "text/html", ...options.headers }, credentials: "omit", referrerPolicy: "no-referrer", signal: controller.signal });
   if (!response.ok) {
     const error = new Error(t("dictionary_http_error", response.status));
     error.status = response.status;
     throw error;
   }
-  if (new URL(response.url || url).origin !== "https://www.verbformen.com") throw new Error(t("dictionary_redirect_error"));
+  if (!dictionaryRequestUrl(response.url || url)) throw new Error(t("dictionary_redirect_error"));
   return { html: await response.text(), sourceUrl: response.url || url };
 }
 
@@ -390,7 +397,7 @@ async function runLookup(word, detail = null, options = {}) {
     setMode("de-en");
     if (options.automatic) chrome.storage.local.set({ lookupMode: "de-en" }).catch(() => {});
     const sourceUrl = `https://www.verbformen.com/?w=${encodeURIComponent(word)}&l=11`;
-    sourceLink.href = sourceUrl;
+    setSourceLink(sourceUrl);
     renderGermanEntry({ word, lemma: word, title: word, ...translation, basicTranslation: true,
       sourceUrl, ipa: [], audio: [], partOfSpeech: "", grammarTags: [], inflectionTables: [] });
     return true;
@@ -398,7 +405,7 @@ async function runLookup(word, detail = null, options = {}) {
   if (!detail) chrome.storage.local.set(options.automatic
     ? { lookupWord: word }
     : { lookupWord: word, lookupMode: mode }).catch(() => {});
-  sourceLink.href = detail?.entry.url || `https://www.verbformen.com/${mode === "en-de" ? "en-de/" : ""}?w=${encodeURIComponent(word)}`;
+  setSourceLink(detail?.entry.url || `https://www.verbformen.com/${mode === "en-de" ? "en-de/" : ""}?w=${encodeURIComponent(word)}`);
   const message = loadingMessage(word, detail, options, requestedMode);
   if (!cached) result.innerHTML = `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
   result.scrollTop = 0;
@@ -415,7 +422,7 @@ async function runLookup(word, detail = null, options = {}) {
       chrome.storage.local.set({ lookupMode: match.mode }).catch(() => {});
       if (match.state) renderSearchResults(match.state);
       else {
-        sourceLink.href = match.sourceUrl;
+        setSourceLink(match.sourceUrl);
         renderGermanEntry(match.data);
       }
     } else if (requestedMode === "en-de" && !detail) {
@@ -446,7 +453,7 @@ async function runLookup(word, detail = null, options = {}) {
         result.innerHTML = `<p class="muted">${escapeHtml(t("no_german_match"))}</p>`;
         return;
       }
-      sourceLink.href = found.sourceUrl;
+      setSourceLink(found.sourceUrl);
       if (detail?.previousData) {
         found.data.entryChoices = mergeEntryChoices(detail.previousData.entryChoices, found.data.entryChoices);
         if (detail.variantKind === "comparison" && !found.data.comparisonVariants?.length) found.data.comparisonVariants = detail.previousData.comparisonVariants;
@@ -460,7 +467,7 @@ async function runLookup(word, detail = null, options = {}) {
       if (sequence !== lookupSequence) return;
     }
     if (detail?.previousData) {
-      sourceLink.href = detail.previousData.sourceUrl;
+      setSourceLink(detail.previousData.sourceUrl);
       renderGermanEntry(detail.previousData, detail.backState, detail.variantKind ? t("entry_load_error") : t("noun_load_error"));
       return;
     }
@@ -504,7 +511,7 @@ function uiIcon(name) {
 function renderSearchResults(state) {
   stopMeaningLookup();
   currentEntry = undefined;
-  sourceLink.href = state.sourceUrl;
+  setSourceLink(state.sourceUrl);
   result.scrollTop = 0;
   const description = state.entries.length ? t(state.entries.length === 1 ? "one_german_match" : "many_german_matches", state.entries.length) : t("no_english_matches");
   result.innerHTML = `<div class="result-head"><div><p class="eyebrow">${escapeHtml(t("english_to_german_heading"))}</p><h1 class="word-title" lang="en">${escapeHtml(state.query)}</h1></div>${speakerButton(state.query, "en-GB")}</div><p class="results-count muted">${escapeHtml(description)}</p><div class="translation-list">${state.entries.map((entry, index) => `<article class="translation-card"><button class="open-entry" data-entry="${index}" aria-label="${escapeHtml(t("open_grammar_label", entry.label))}"><span class="translation-word" lang="de">${escapeHtml(entry.label)}</span>${entry.partOfSpeech ? `<span class="translation-pos">${escapeHtml(uiGrammarLabel(entry.partOfSpeech))}</span>` : ""}<span class="translation-meaning" lang="en">${escapeHtml(entry.meaning)}</span><span class="translation-action">${["verb", "noun", "adjective", "pronoun", "article"].includes(entry.partOfSpeech) ? escapeHtml(t("forms_grammar")) : escapeHtml(t("view_meaning"))} ${uiIcon("arrow-up-right")}</span></button>${speakerButton(entry.lemma, "de-DE")}</article>`).join("")}</div><p class="audio-status muted" role="status"></p>`;
@@ -513,7 +520,7 @@ function renderSearchResults(state) {
     if (entry.data && !entry.detailUrl) {
       cancelLookup();
       tabEntryCache.clear();
-      sourceLink.href = entry.url;
+      setSourceLink(entry.url);
       result.scrollTop = 0;
       renderGermanEntry(entry.data, state);
     } else runLookup(entry.lemma, { entry, backState: state });
@@ -559,7 +566,7 @@ function renderGermanEntry(data, backState, message = "") {
       const entry = entries[index];
       if (variantKind === "entry" && entry.data && !dictionaryEntryUrl(entry.url, data.sourceUrl)) {
         cancelLookup();
-        sourceLink.href = entry.data.sourceUrl;
+        setSourceLink(entry.data.sourceUrl);
         renderGermanEntry({ ...entry.data, word: data.word, entryChoices: choices }, backState);
         return;
       }

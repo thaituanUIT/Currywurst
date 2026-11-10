@@ -2,6 +2,16 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## 1.6.1
+
+### Added
+
+- Support for linked Woerter.net word definitions, including the preposition and conjunction entries for **ohne**, with source labels, saved source URLs, pronunciation support, and the required host permission and data disclosure.
+
+### Fixed
+
+- Follow exact candidate links even when the search page provides no full grammar card. Load and verify the selected definition before showing it, try another matching entry after a missing page, and keep unrelated words and destinations excluded.
+
 ## 1.6.0
 
 ### Fixed

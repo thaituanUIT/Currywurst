@@ -18,7 +18,7 @@ function parseVerbformen(html, word, sourceUrl) {
       if (!src) return false;
       try {
         const url = new URL(src, sourceUrl);
-        return url.origin === "https://www.verbformen.com" && /\.(mp3|ogg|wav|m4a)(?:$|[?#])/i.test(url.pathname + url.search);
+        return ["https://www.verbformen.com", "https://www.woerter.net"].includes(url.origin) && !url.username && !url.password && /\.(mp3|ogg|wav|m4a)(?:$|[?#])/i.test(url.pathname + url.search);
       }
       catch { return false; }
     })
@@ -207,7 +207,14 @@ function mergeEntryChoices(...lists) {
 
 function entryChoiceKey(entry) {
   const url = dictionaryEntryUrl(entry.url, "https://www.verbformen.com/");
-  if (url) return url;
+  if (url) {
+    const address = new URL(url);
+    if (address.origin === "https://www.woerter.net") {
+      const parts = address.pathname.split("/").filter(Boolean);
+      address.pathname = `/${parts[0]}/${parts.at(-1)}`;
+    }
+    return address.href;
+  }
   const data = entry.data;
   if (!data || !data.meaning || data.partOfSpeech !== entry.partOfSpeech || !isGermanEntryMatch(data, entry.lemma)) return null;
   try {
@@ -218,14 +225,13 @@ function entryChoiceKey(entry) {
 }
 
 function extractWordTypeVariants(doc, lemma, partOfSpeech, sourceUrl, canonicalUrl) {
-  const paths = { verb: "/conjugation/", noun: "/declension/nouns/", adjective: "/declension/adjectives/", pronoun: "/declension/pronouns/", article: "/declension/articles/" };
   const links = [...doc.querySelectorAll("a[href]")];
   const choices = links.flatMap(link => {
     const url = dictionaryEntryUrl(link.getAttribute("href"), sourceUrl);
-    const match = cleanHeadword(link.textContent).match(/^(verb|noun|adjective|pronoun|article)\s+(.+)$/i);
+    const match = cleanHeadword(link.textContent).match(new RegExp(`^(${DICTIONARY_WORD_TYPES})\\s+(.+)$`, "i"));
     if (!url || !match) return [];
     const type = match[1].toLowerCase();
-    if (type === partOfSpeech || !new URL(url).pathname.startsWith(paths[type])) return [];
+    if (type === partOfSpeech || dictionaryEntryType(url) !== type) return [];
     const label = match[2];
     let headword = label.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "");
     if (type === "verb") headword = headword.replace(/\s+/g, "");
@@ -234,9 +240,9 @@ function extractWordTypeVariants(doc, lemma, partOfSpeech, sourceUrl, canonicalU
     return [{ lemma: headword, partOfSpeech: type, label: `${type} · ${article ? `${article} ${headword}` : headword}`, url }];
   });
   const ownUrl = [canonicalUrl, sourceUrl].map(url => dictionaryEntryUrl(url, sourceUrl))
-    .find(url => url && new URL(url).pathname.startsWith(paths[partOfSpeech] || "!"))
+    .find(url => url && dictionaryEntryType(url) === partOfSpeech)
     || links.map(link => ({ text: normalizeGermanForm(cleanHeadword(link.textContent)), url: dictionaryEntryUrl(link.getAttribute("href"), sourceUrl) }))
-      .find(link => link.text === normalizeGermanForm(lemma) && link.url && new URL(link.url).pathname.startsWith(paths[partOfSpeech] || "!"))?.url;
+      .find(link => link.text === normalizeGermanForm(lemma) && link.url && dictionaryEntryType(link.url) === partOfSpeech)?.url;
   const own = ownUrl ? [{ lemma, partOfSpeech, label: `${partOfSpeech} · ${lemma}`, url: ownUrl }] : [];
   return mergeEntryChoices(own, choices);
 }
@@ -369,18 +375,6 @@ function isGermanEntryMatch(entry, word) {
   }));
 }
 
-function dictionaryEntryUrl(href, baseUrl) {
-  try {
-    const url = new URL(href, baseUrl);
-    if (url.origin !== "https://www.verbformen.com") return null;
-    const segments = url.pathname.split("/").filter(Boolean);
-    if (segments.some((part) => /^(?:examples|worksheets|worksheets-exercises|downloads|search)$/i.test(part))) return null;
-    const conjugation = segments[0] === "conjugation" && segments.length >= 2;
-    const declension = segments[0] === "declension" && ["nouns", "adjectives", "pronouns", "articles"].includes(segments[1]) && segments.length >= 3;
-    return (conjugation || declension) && segments.length <= 7 && /^[^/]+\.htm$/i.test(segments.at(-1)) ? url.href : null;
-  } catch { return null; }
-}
-
 function parseEnglishSearchForm(html, sourceUrl) {
   const doc = parseDictionaryDocument(html);
   const form = [...doc.querySelectorAll("form")].find((node) => node.querySelector('[name="w"]'));
@@ -511,7 +505,22 @@ function parseSearchCards(html, sourceUrl) {
 }
 
 function parseGermanSearchEntries(html, query, sourceUrl) {
-  return parseSearchCards(html, sourceUrl).filter((entry) => isGermanEntryMatch({ ...entry.data, sourceUrl: entry.detailUrl || entry.url }, query));
+  const cards = parseSearchCards(html, sourceUrl);
+  const seen = new Set(cards.map(entry => entry.detailUrl).filter(Boolean));
+  const doc = parseDictionaryDocument(html);
+  for (const link of doc.querySelectorAll("a[href]")) {
+    const url = dictionaryEntryUrl(link.getAttribute("href"), sourceUrl);
+    if (!url || seen.has(url)) continue;
+    const type = dictionaryEntryType(url);
+    const label = cleanHeadword(link.textContent).replace(new RegExp(`^(?:${DICTIONARY_WORD_TYPES})\\s+`, "i"), "");
+    const lemma = label.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "");
+    if (normalizeGermanForm(lemma) !== normalizeGermanForm(query)) continue;
+    const encoded = lemma.replace(/[&<>]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char]);
+    const data = parseVerbformen(`<h1>German ${type} ${encoded}</h1>`, query, url);
+    cards.push({ lemma, label, partOfSpeech: type, meaning: "", url, detailUrl: url, data: { ...data, linkOnly: true } });
+    seen.add(url);
+  }
+  return cards.filter(entry => isGermanEntryMatch({ ...entry.data, sourceUrl: entry.detailUrl || entry.url }, query));
 }
 
 function nounArticleFromTags(tags = []) {

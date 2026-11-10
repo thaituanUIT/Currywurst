@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extension_name__",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "__MSG_extension_description__",
   "default_locale": "en",
   "permissions": ["contextMenus", "storage", "activeTab", "scripting"],
-  "host_permissions": ["https://www.verbformen.com/*", "https://en.wiktionary.org/*", "https://api.mymemory.translated.net/*"],
+  "host_permissions": ["https://www.verbformen.com/*", "https://www.woerter.net/*", "https://en.wiktionary.org/*", "https://api.mymemory.translated.net/*"],
   "background": { "service_worker": "background.js" },
   "action": {
     "default_title": "__MSG_action_title__",

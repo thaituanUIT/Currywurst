@@ -158,7 +158,7 @@
     "message": "Unexpected dictionary redirect."
   },
   "dictionary_http_error": {
-    "message": "Verbformen returned HTTP $STATUS$",
+    "message": "Dictionary returned HTTP $STATUS$",
     "placeholders": {
       "status": {
         "content": "$1"

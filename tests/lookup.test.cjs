@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const { browserI18n, english } = require('./helpers/i18n.cjs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const parserContext = vm.createContext({ URL });
+vm.runInContext(fs.readFileSync('dictionary-sources.js', 'utf8'), parserContext);
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 
 function makeElement(dataset = {}) {
@@ -71,6 +72,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
     parseEnglishResults: () => entries,
     isGermanEntryMatch: parserContext.isGermanEntryMatch,
     dictionaryEntryUrl: parserContext.dictionaryEntryUrl,
+    dictionaryRequestUrl: parserContext.dictionaryRequestUrl,
     normalizeGermanForm: parserContext.normalizeGermanForm,
     mergeEntryChoices: parserContext.mergeEntryChoices,
     parseGermanSearchEntries: () => [],
@@ -271,6 +273,49 @@ test('ohne switches between exact inline word types locally and reopens the save
   assert.equal(h.choiceButtons()[1].getAttribute('aria-pressed'), 'true');
   assert.match(h.elements['#result'].innerHTML, /without, but for/);
   assert.equal(translations, 0);
+});
+
+test('Woerter candidates fetch their own definitions, update the source, and retain saved source URLs', async () => {
+  const h = harness();
+  await tick();
+  const choices = ['preposition', 'conjunction'].map(partOfSpeech => ({ lemma: 'ohne', label: `${partOfSpeech} · ohne`, partOfSpeech, url: `https://www.woerter.net/${partOfSpeech}s/ohne.htm` }));
+  const makeEntry = (partOfSpeech, sourceUrl) => germanEntry('ohne', { title: `Definition of German ${partOfSpeech} ohne`, partOfSpeech, article: '', meaning: partOfSpeech === 'preposition' ? 'without' : 'without, but for', sourceUrl, entryChoices: choices });
+  h.context.lookupGermanEntry = async () => ({ data: makeEntry('preposition', choices[0].url), sourceUrl: choices[0].url });
+  h.context.parseVerbformen = (_, word, sourceUrl) => makeEntry('conjunction', sourceUrl);
+  await h.context.runLookup('ohne');
+  assert.match(h.elements['#source'].innerHTML, /Woerter\.net/);
+  h.choiceButtons()[1].listeners.click();
+  assert.equal(h.requests[0].url, choices[1].url);
+  assert.equal(h.requests[0].options.credentials, 'omit');
+  assert.equal(h.requests[0].options.referrerPolicy, 'no-referrer');
+  h.respond(0);
+  await tick();
+  assert.match(h.elements['#result'].innerHTML, /without, but for/);
+  assert.equal(h.elements['#source'].href, choices[1].url);
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].sourceUrl, choices[1].url);
+  h.choiceButtons()[0].listeners.click();
+  assert.equal(h.requests.length, 1);
+  assert.match(h.elements['#result'].innerHTML, /class="gloss"[^>]*>without</);
+  const reopened = h.context.openSavedWord(h.savedState.savedWords[0]);
+  assert.equal(h.requests[1].url, choices[1].url);
+  h.respond(1);
+  await reopened;
+  assert.match(h.elements['#result'].innerHTML, /without, but for/);
+});
+
+test('dictionary fetches allow verified Woerter redirects and reject arbitrary destinations', async () => {
+  const h = harness();
+  await tick();
+  const controller = new AbortController();
+  const pending = h.context.fetchPage('https://www.verbformen.com/?w=ohne', controller);
+  h.requests[0].resolve({ ok: true, text: async () => 'definition', url: 'https://www.woerter.net/conjunctions/ohne.htm' });
+  assert.equal((await pending).sourceUrl, 'https://www.woerter.net/conjunctions/ohne.htm');
+  await assert.rejects(h.context.fetchPage('https://www.woerter.net/account', controller), /Unexpected dictionary address/);
+  assert.equal(h.requests.length, 1);
+  const redirected = h.context.fetchPage('https://www.woerter.net/prepositions/ohne.htm', controller);
+  h.requests[1].resolve({ ok: true, url: 'https://evil.example/', text: async () => '' });
+  await assert.rejects(redirected, /Unexpected dictionary redirect/);
 });
 
 test('different inline senses of one word stay selectable instead of collapsing by URL', async () => {

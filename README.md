@@ -1,6 +1,6 @@
 # <img src="icon.svg" alt="Currywurst icon" width="48" height="48" align="center"> Currywurst
 
-Look up German and English words while you read in Chrome or Microsoft Edge. Currywurst shows translations, pronunciation, and available German grammar and word forms from Verbformen.
+Look up German and English words while you read in Chrome or Microsoft Edge. Currywurst shows translations, pronunciation, and available German grammar and word forms from Verbformen, and follows linked word definitions on Woerter.net.
 
 When a verified entry has no English meaning on Verbformen, Currywurst tries English Wiktionary and labels the definition with its source.
 
@@ -46,7 +46,7 @@ If you installed with Git, pull the latest changes and reload the extension. Mai
 3. Right-click the selection and choose **Look up with Currywurst**. The extension uses the page's language and dictionary matches to choose the lookup direction automatically.
 4. The lookup card shows the word and its meaning. Use the speaker buttons to hear the selected word and its dictionary form when they differ.
 5. English searches show a list of German matches. Click a match to open its grammar, then **Back to results** to return to the list.
-6. Use **Verbformen ↗** below the card to open the full source page.
+6. Use the source link below the card to open the full dictionary page. It shows **Verbformen** or **Woerter.net**, depending on the result.
 
 You can also open the extension from the Extensions menu and type a word into the search box. The **DE → EN** button shows the current direction: German to English. Click it once to switch to **EN → DE**, and click again to switch back. Switching direction clears the previous word and results, ready for a new search. Currywurst remembers your last mode. Each mode has its own soft cream, mustard, and paprika colors.
 
@@ -93,11 +93,13 @@ This disclosure describes the current version of Currywurst in this repository.
 
 **What leaves your browser:** Lookup text is sent over HTTPS to [Verbformen](https://www.verbformen.com/) to retrieve translations and word forms. Automatic language detection may try both lookup directions. If a form is not found, Currywurst may request related spellings to locate its dictionary entry. Opening a German match requests that word's entry when a separate page is available. Verbformen receives the lookup text and standard connection information, such as your IP address, and may retain its own request logs. Its own privacy terms apply to those requests.
 
+Some dictionary results link to definitions on [Woerter.net](https://www.woerter.net/), including prepositions and conjunctions. Currywurst may follow these word-entry links or a dictionary redirect to retrieve the selected word's meaning, grammar labels, IPA, and available pronunciation. Requests omit browser credentials and referrers. Woerter.net receives the requested dictionary word and standard connection information such as your IP address; its own privacy terms apply. Dictionary requests are limited to Verbformen and permitted Woerter.net word-entry routes.
+
 When a verified German entry lacks an English gloss, its dictionary form is sent to the [English Wiktionary API](https://en.wiktionary.org/w/api.php). Currywurst may follow one related dictionary form explicitly linked by that source, matching the word type and noun gender. These requests omit browser credentials and send no surrounding webpage text. Wikimedia receives the requested word and standard connection information, including your IP address; its [privacy policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) applies. This fallback makes at most two requests within a four-second deadline.
 
 If no German dictionary entry can be retrieved, the selected lookup text is sent to [MyMemory's translation API](https://mymemory.translated.net/doc/spec.php) with the language pair German → English. This fallback makes one HTTPS request within a four-second deadline, omits browser credentials and referrers, and sends no page URL or surrounding text. MyMemory receives the lookup text and standard connection information such as your IP address. No API key, account, or email is supplied by Currywurst; the service's [terms](https://mymemory.translated.net/doc/tos.php) and [usage limits](https://mymemory.translated.net/doc/usagelimits.php) apply. Only its lookup endpoint is used.
 
-**Pronunciation:** Playing a dictionary recording requests an audio file from Verbformen. If a recording is unavailable, Currywurst asks the browser to speak the word. Depending on the voice and your browser or operating system, speech may be generated on your device or by a third-party speech service. That service may receive the word being spoken.
+**Pronunciation:** Playing a dictionary recording requests an audio file from Verbformen or Woerter.net. If a recording is unavailable, Currywurst asks the browser to speak the word. Depending on the voice and your browser or operating system, speech may be generated on your device or by a third-party speech service. That service may receive the word being spoken.
 
 **What stays on your device:** The last lookup text and selected lookup direction are saved in the extension's local browser storage. This is not a complete lookup history and is not synced through Currywurst. Saved values remain until replaced or the browser clears the extension's data. A right-click lookup temporarily stores the selected word and its language hint in browser-session storage, then consumes that request when the popup opens. Reopening the popup restores the search text without sending it to Verbformen; click **Look up** or invoke a fresh right-click lookup to search again.
 
@@ -116,6 +118,7 @@ The current extension has no analytics, advertising, account system, or develope
 | Active tab | Gives temporary access to the page you invoke the extension on, so it can read the selection's language label. |
 | Scripting | Runs that small language-label check after your right-click lookup. |
 | Access to `https://www.verbformen.com/*` | Retrieves dictionary entries, search results, and pronunciation recordings. |
+| Access to `https://www.woerter.net/*` | Follows linked dictionary word entries and retrieves their meanings, grammar labels, and available pronunciation. |
 | Access to `https://en.wiktionary.org/*` | Retrieves an English definition when a verified Verbformen entry has no English gloss. |
 | Access to `https://api.mymemory.translated.net/*` | Retrieves a basic German-to-English translation when no dictionary entry can be retrieved. |
 
@@ -123,7 +126,7 @@ Currywurst does not request access to all websites, your browsing history, or th
 
 ## Security and reporting
 
-Currywurst uses bundled JavaScript and the browser's standard Manifest V3 security policy. Fetched dictionary HTML is processed as data; extracted text is escaped before it is displayed in the popup. Grammar lookup destinations and dictionary-entry links are checked against Verbformen. Definition requests are restricted to English Wiktionary, and basic translation requests to MyMemory's API. Their results are displayed as escaped text with provider attribution.
+Currywurst uses bundled JavaScript and the browser's standard Manifest V3 security policy. Fetched dictionary HTML is processed as data; extracted text is escaped before it is displayed in the popup. Dictionary requests are checked against Verbformen and specific Woerter.net word-entry routes, with redirects validated before their content is used. Missing English definitions use English Wiktionary, and basic translations use MyMemory's API. Their results are displayed as escaped text with provider attribution.
 
 The project includes automated behavior tests, but these are not an independent security audit or a guarantee that the extension is free of vulnerabilities. Browser testing, review of external HTML handling, and security scanning remain important before each public release. A passing test result should be associated with the exact version or commit that was checked.
 
