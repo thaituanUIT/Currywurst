@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const parser = vm.createContext({ URL });
+vm.runInContext(fs.readFileSync('dictionary-sources.js', 'utf8'), parser);
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parser);
 const empty = { title: 'All German words', lemma: 'Abend', meaning: 'evening', inflectionTables: [] };
 const book = { title: 'Conjugation of German verb buchstabieren', lemma: 'buchstabieren', partOfSpeech: 'verb', meaning: 'spell', inflectionTables: [{ title: 'Present', group: 'Imperative', rows: [['buchstabiere', '(du)']] }] };
@@ -80,6 +81,47 @@ test('ohne resolves two exact inline candidates and preserves both without fetch
   assert.deepEqual(Array.from(result.data.entryChoices, entry => entry.partOfSpeech), ['preposition', 'conjunction']);
   assert.equal(h.calls.length, 1);
   assert.equal(result.data.entryChoices[1].data.meaning, 'without');
+});
+
+function woerterCards() {
+  return ['preposition', 'conjunction'].map(partOfSpeech => {
+    const detailUrl = `https://www.woerter.net/${partOfSpeech}s/ohne.htm`;
+    return { lemma: 'ohne', label: 'ohne', partOfSpeech, detailUrl, url: detailUrl,
+      data: { title: `Definition of German ${partOfSpeech} ohne`, lemma: 'ohne', partOfSpeech, sourceUrl: detailUrl, meaning: '', inflectionTables: [], linkOnly: true } };
+  });
+}
+
+test('compact Woerter candidates load the selected definition and retain the other type', async () => {
+  const cards = woerterCards();
+  const h = harness(url => url.hostname === 'www.woerter.net' ? { html: { entry: { ...cards[0].data, linkOnly: false, meaning: 'without' } } }
+    : { html: { cards } });
+  const result = await h.context.lookupGermanEntry('ohne', h.load, h.signal);
+  assert.equal(result.data.meaning, 'without');
+  assert.equal(result.sourceUrl, cards[0].url);
+  assert.equal(result.data.entryChoices.length, 2);
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls[1].href, cards[0].url);
+});
+
+test('a missing Woerter candidate tries the other exact candidate without displaying a stub', async () => {
+  const cards = woerterCards();
+  const h = harness(url => {
+    if (url.pathname === '/prepositions/ohne.htm') throw Object.assign(new Error('missing'), { status: 404 });
+    if (url.pathname === '/conjunctions/ohne.htm') return { html: { entry: { ...cards[1].data, linkOnly: false, meaning: 'without, but for' } } };
+    return { html: { cards } };
+  });
+  const result = await h.context.lookupGermanEntry('ohne', h.load, h.signal);
+  assert.equal(result.data.partOfSpeech, 'conjunction');
+  assert.equal(result.data.meaning, 'without, but for');
+  assert.equal(h.calls.length, 3);
+});
+
+test('Woerter definitions must match the selected word and canonicalize their own routes', async () => {
+  const cards = woerterCards();
+  const h = harness(url => url.hostname === 'www.woerter.net' ? { html: { entry: { title: 'German noun Haus', lemma: 'Haus', meaning: 'house' } } }
+    : url.pathname === '/' ? { html: { cards } } : {});
+  assert.equal(await h.context.lookupGermanEntry('ohne', h.load, h.signal), null);
+  assert.equal(h.context.fullDictionaryEntryUrl('https://www.woerter.net/conjunctions/meanings/ohne.htm'), 'https://www.woerter.net/conjunctions/ohne.htm');
 });
 
 test('inflected nouns, adjectives, articles, and pronouns retain their entry types', async () => {

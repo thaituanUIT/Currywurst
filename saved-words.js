@@ -17,8 +17,7 @@ function savedWordRecord(entry, savedAt = Date.now()) {
   const article = /^(der|die|das)$/.test(entry.article || "") ? entry.article : "";
   let sourceUrl = "";
   try {
-    const url = new URL(entry.sourceUrl);
-    if (url.origin === "https://www.verbformen.com" && !url.username && !url.password) sourceUrl = url.href;
+    sourceUrl = dictionaryRequestUrl(entry.sourceUrl) || "";
   } catch { /* Search-only entries can be looked up again by their lemma. */ }
   const meaningSource = safeMeaningSource(entry.meaningSource);
   const record = { lemma, meaning, partOfSpeech, article, sourceUrl, savedAt, ...(meaningSource ? { meaningSource } : {}) };

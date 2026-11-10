@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const parser = vm.createContext({ URL, Node: { DOCUMENT_POSITION_FOLLOWING: 4 } });
+vm.runInContext(fs.readFileSync('dictionary-sources.js', 'utf8'), parser);
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parser);
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -152,6 +153,47 @@ test('nested dictionary routes are accepted while exports and foreign hosts are 
   for (const path of ['conjugation/worksheets-exercises/suchsel/buchstabieren.htm','conjugation/aufrufen.pdf','search/','https://evil.example/conjugation/machen.htm']) {
     assert.equal(parser.dictionaryEntryUrl(path,'https://www.verbformen.com/'), null);
   }
+});
+
+test('Woerter entry URLs support non-inflected word types and reject unrelated pages or hosts', () => {
+  for (const [path, type] of [['conjunctions/ohne.htm', 'conjunction'], ['prepositions/ohne.htm', 'preposition'], ['adverbs/heute.htm', 'adverb'], ['particles/nicht.htm', 'particle']]) {
+    const url = `https://www.woerter.net/${path}`;
+    assert.equal(parser.dictionaryEntryUrl(url), url);
+    assert.equal(parser.dictionaryRequestUrl(url), url);
+    assert.equal(parser.dictionaryEntryType(url), type);
+  }
+  for (const url of ['https://www.woerter.net/', 'https://www.woerter.net/account', 'https://www.woerter.net/search/?w=ohne',
+    'https://www.woerter.net/conjunctions/examples/ohne.htm', 'https://www.woerter.net/conjunctions/ohne.pdf',
+    'https://www.woerter.net.evil.example/conjunctions/ohne.htm', 'https://user:pass@www.woerter.net/conjunctions/ohne.htm',
+    'http://www.woerter.net/conjunctions/ohne.htm']) assert.equal(parser.dictionaryRequestUrl(url), null);
+});
+
+test('Woerter word-type links preserve both ohne entries from a definition page', () => {
+  const links = [['preposition "ohne"', 'https://www.woerter.net/prepositions/ohne.htm'], ['conjunction "ohne"', '/conjunctions/ohne.htm']]
+    .map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  const choices = parser.extractWordTypeVariants({ querySelectorAll: () => links }, 'ohne', 'conjunction', 'https://www.woerter.net/conjunctions/ohne.htm');
+  assert.deepEqual(plain(choices).map(entry => entry.partOfSpeech), ['conjunction', 'preposition']);
+  const duplicate = { ...choices[0], url: 'https://www.woerter.net/conjunctions/meanings/ohne.htm' };
+  assert.equal(parser.mergeEntryChoices(choices, [duplicate]).length, 2);
+});
+
+test('compact candidate links without metadata resolve exact words through their Woerter URL types', () => {
+  const originals = { parseDictionaryDocument: parser.parseDictionaryDocument, parseSearchCards: parser.parseSearchCards, parseVerbformen: parser.parseVerbformen };
+  const links = [
+    ['preposition "ohne"', 'https://www.woerter.net/prepositions/ohne.htm'],
+    ['conjunction "ohne"', 'https://www.woerter.net/conjunctions/ohne.htm'],
+    ['conjunction "aber"', 'https://www.woerter.net/conjunctions/aber.htm'],
+    ['ohne', 'https://evil.example/conjunctions/ohne.htm'],
+  ].map(([textContent, href]) => ({ textContent, getAttribute: () => href }));
+  parser.parseDictionaryDocument = () => ({ querySelectorAll: () => links });
+  parser.parseSearchCards = () => [];
+  parser.parseVerbformen = (_, word, sourceUrl) => ({ title: `German ${parser.dictionaryEntryType(sourceUrl)} ${word}`, lemma: word, partOfSpeech: parser.dictionaryEntryType(sourceUrl), sourceUrl, inflectionTables: [] });
+  try {
+    const entries = parser.parseGermanSearchEntries('', 'ohne', 'https://www.verbformen.com/conjugation/?w=ohne');
+    assert.equal(entries.length, 2);
+    assert.deepEqual(plain(entries).map(entry => entry.partOfSpeech), ['preposition', 'conjunction']);
+    assert.ok(entries.every(entry => entry.data.linkOnly && entry.detailUrl.startsWith('https://www.woerter.net/')));
+  } finally { Object.assign(parser, originals); }
 });
 
 test('irregular comparative and superlative forms can match an adjective entry', () => {

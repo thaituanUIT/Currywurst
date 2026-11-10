@@ -18,6 +18,7 @@ function harness() {
     },
   };
   const context = vm.createContext({ URL });
+  vm.runInContext(fs.readFileSync('dictionary-sources.js', 'utf8'), context);
   vm.runInContext(source, context);
   return { state, storage, context, store: context.createSavedWordsStore(storage), failNextWrite: () => { failWrite = true; } };
 }
@@ -140,4 +141,14 @@ test('saved basic translations retain MyMemory attribution without a Wiktionary 
   assert.equal(restored.words[0].meaningSource.provider, 'MyMemory');
   const invalid = h.context.savedWordRecord(entry('other', { meaningSource: { provider: 'MyMemory', url: 'https://evil.example/' } }));
   assert.equal(invalid.meaningSource, undefined);
+});
+
+test('saved Woerter entries retain only permitted dictionary definition URLs', async () => {
+  const h = harness();
+  const sourceUrl = 'https://www.woerter.net/conjunctions/ohne.htm';
+  const { words } = await h.store.add(entry('ohne', { partOfSpeech: 'conjunction', article: '', meaning: 'without, but for', sourceUrl }));
+  assert.equal(words[0].sourceUrl, sourceUrl);
+  for (const url of ['https://www.woerter.net/account', 'https://user:pass@www.woerter.net/conjunctions/ohne.htm', 'https://www.woerter.net.evil.example/conjunctions/ohne.htm']) {
+    assert.equal(h.context.savedWordRecord(entry('other', { sourceUrl: url })).sourceUrl, '');
+  }
 });

@@ -1,4 +1,5 @@
 importScripts("i18n.js");
+importScripts("dictionary-sources.js");
 importScripts("saved-words.js");
 const savedWordsStore = createSavedWordsStore(chrome.storage.local);
 
