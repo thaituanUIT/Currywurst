@@ -37,6 +37,10 @@ Dictionary entries can link directly to other word types: [klein (adjective)](ht
 
 Related-entry candidate suggestions are removed. Search cards are still used to resolve exact words and source-verified inflections, and explicit word-type links remain available within a verified entry. The adjective's positive page supplies its stable type identity across comparison degrees.
 
+Multiple exact entries without individual dictionary pages are supported separately from related-word suggestions. For example, Verbformen's [conjunction list](https://www.verbformen.com/search/conjunctions/?l=11) includes **ohne**, and the reported search also has a preposition entry. Split entries at their grammar summaries even when they share a parent, and count nested copies of the same summary once. Clone slices inside inert templates. Preserve each matching inline entry by lemma, word type, article, and meaning, rather than deduplicating by the shared search URL. Switch these entries locally and preserve the selected word type when reopening a saved word. English-to-German matches likewise retain distinct inline types with the same gloss. No extra candidate requests are made.
+
+The live `ohne` query could not be retrieved in the development environment. The change is covered by controlled routing/UI tests, metadata-boundary tests, and additional browser HTML fixtures; live query and browser-fixture execution still require browser verification.
+
 German resolution shares a cache within the lookup, with at most eight distinct dictionary requests during normal form recovery. English search and automatic direction fallback can make additional requests. Basic translation uses a separate bounded session cache of 100 items and adds at most one MyMemory request. The existing overall lookup timeout still applies. This is a bounded lookup, not bulk crawling.
 
 ## Form matching

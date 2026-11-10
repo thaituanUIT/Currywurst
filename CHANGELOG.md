@@ -2,6 +2,12 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## 1.6.0
+
+### Fixed
+
+- Resolve multiple exact search entries such as **ohne** as a preposition and conjunction, including entries without separate dictionary URLs. Split flat result layouts safely, avoid counting nested grammar summaries twice, and preserve distinct word types or senses even when their search URL is shared. Switch inline entries without another request and retain the selected type when reopening a saved word.
+
 ## 1.5.1
 
 ### Added
