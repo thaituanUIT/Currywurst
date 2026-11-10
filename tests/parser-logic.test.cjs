@@ -6,6 +6,75 @@ const parser = vm.createContext({ URL, Node: { DOCUMENT_POSITION_FOLLOWING: 4 } 
 vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parser);
 const plain = value => JSON.parse(JSON.stringify(value));
 
+function summaryNode(textContent, children = []) {
+  return { textContent, contains(node) { return node === this || children.some(child => child.contains(node)); } };
+}
+
+test('search summaries count nested metadata once and retain the full CEFR summary', () => {
+  const firstSmall = summaryNode('preposition · accusative');
+  const first = summaryNode('A1 · preposition · accusative', [firstSmall]);
+  const secondSmall = summaryNode('A1 · conjunction · subordinating');
+  const second = summaryNode('A1 · conjunction · subordinating', [secondSmall]);
+  const summaries = parser.searchCardSummaries({ querySelectorAll: () => [first, firstSmall, second, secondSmall] });
+  assert.equal(summaries.length, 2);
+  assert.equal(summaries[0], first);
+  assert.equal(summaries[1], second);
+});
+
+test('flat search candidates are partitioned by metadata boundaries in inert templates', () => {
+  const first = summaryNode('A1 · preposition · accusative');
+  const second = summaryNode('A1 · conjunction · subordinating');
+  const combined = summaryNode('A1 · preposition · accusative ohne without A1 · conjunction · subordinating ohne without, but for', [first, second]);
+  const doc = { querySelectorAll: () => [combined, first, second], childNodes: [combined] };
+  const ranges = [];
+  parser.document = {
+    createRange() {
+      const state = {};
+      ranges.push(state);
+      return { setStartBefore(node) { state.start = node; }, setEndBefore(node) { state.end = node; }, setEnd(node, offset) { state.root = node; state.offset = offset; }, cloneContents() { return state; }, detach() {} };
+    },
+    createElement(tag) {
+      assert.equal(tag, 'template');
+      return { content: { firstElementChild: { appendChild(fragment) { this.fragment = fragment; } } } };
+    },
+  };
+  try {
+    const sections = parser.searchCardSections(doc);
+    assert.equal(sections.length, 2);
+    assert.equal(ranges[0].start, first);
+    assert.equal(ranges[0].end, second);
+    assert.equal(ranges[1].start, second);
+    assert.equal(ranges[1].root, doc);
+    assert.equal(sections[0].card.fragment, ranges[0]);
+  } finally { delete parser.document; }
+});
+
+test('verified inline entries keep different word types despite sharing a query URL', () => {
+  const url = 'https://www.verbformen.com/?w=ohne&l=11';
+  const choice = partOfSpeech => ({ lemma: 'ohne', partOfSpeech, url, data: { title: `German ${partOfSpeech} ohne`, lemma: 'ohne', partOfSpeech, meaning: 'without', sourceUrl: url, inflectionTables: [] } });
+  const preposition = choice('preposition'), conjunction = choice('conjunction');
+  const bad = { ...conjunction, data: { ...conjunction.data, sourceUrl: 'https://evil.example/' } };
+  const wrong = { ...conjunction, lemma: 'Haus' };
+  const merged = parser.mergeEntryChoices([preposition, conjunction, { ...preposition }, bad, wrong]);
+  assert.equal(merged.length, 2);
+  assert.notEqual(parser.entryChoiceKey(preposition), parser.entryChoiceKey(conjunction));
+});
+
+test('English results retain matching inline types even when their gloss and query URL are identical', () => {
+  const originalDocument = parser.parseDictionaryDocument, originalCards = parser.parseSearchCards;
+  parser.parseDictionaryDocument = () => ({ querySelector: () => null, querySelectorAll: () => [] });
+  const cards = ['preposition', 'conjunction'].map(partOfSpeech => ({ lemma: 'ohne', label: 'ohne', partOfSpeech, meaning: 'without', url: 'https://www.verbformen.com/en-de/?w=without', data: { article: '' } }));
+  parser.parseSearchCards = () => [...cards, cards[0]];
+  try {
+    const results = parser.parseEnglishResults('', 'without', 'https://www.verbformen.com/en-de/?w=without');
+    assert.equal(results.length, 2);
+    assert.deepEqual(plain(results).map(entry => entry.partOfSpeech), ['preposition', 'conjunction']);
+  } finally {
+    parser.parseDictionaryDocument = originalDocument;
+    parser.parseSearchCards = originalCards;
+  }
+});
+
 test('verb metadata keeps auxiliary and separability without accepting prose', () => {
   assert.deepEqual(plain(parser.parseGrammarSummary('A1 · irregular · haben · separable', 'Conjugation of German verb aufrufen')), {
     level: 'A1', partOfSpeech: 'verb', grammarTags: ['irregular', 'haben', 'separable'],

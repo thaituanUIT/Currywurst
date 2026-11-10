@@ -239,6 +239,56 @@ test('a verified dictionary entry does not call the basic translation service', 
   assert.doesNotMatch(h.elements['#result'].innerHTML, /Basic translation/);
 });
 
+test('ohne switches between exact inline word types locally and reopens the saved type', async () => {
+  let translations = 0;
+  const h = harness({}, {}, async () => null, async () => { translations++; return null; });
+  await tick();
+  const cards = [
+    { partOfSpeech: 'preposition', meaning: 'without', grammarTags: ['accusative'] },
+    { partOfSpeech: 'conjunction', meaning: 'without, but for', grammarTags: ['subordinating'] },
+  ].map(entry => ({ lemma: 'ohne', label: 'ohne', detailUrl: null, data: germanEntry('ohne', { ...entry, article: '', title: `German ${entry.partOfSpeech} ohne`, level: 'A1' }) }));
+  h.context.parseVerbformen = () => ({ title: 'All German words', lemma: 'ohne', meaning: '', inflectionTables: [] });
+  h.context.parseGermanSearchEntries = () => cards;
+  const lookup = h.context.runLookup('ohne');
+  h.respond(0);
+  await lookup;
+  assert.equal(h.choiceButtons().length, 2);
+  assert.equal(h.choiceButtons()[0].getAttribute('aria-pressed'), 'true');
+  assert.match(h.elements['#result'].innerHTML, /accusative/);
+  h.choiceButtons()[1].listeners.click();
+  assert.equal(h.choiceButtons()[1].getAttribute('aria-pressed'), 'true');
+  assert.match(h.elements['#result'].innerHTML, /without, but for/);
+  assert.match(h.elements['#result'].innerHTML, /subordinating/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /accusative/);
+  assert.equal(h.requests.length, 1);
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].partOfSpeech, 'conjunction');
+  h.choiceButtons()[0].listeners.click();
+  assert.equal(h.requests.length, 1);
+  const reopened = h.context.openSavedWord(h.savedState.savedWords[0]);
+  h.respond(1);
+  await reopened;
+  assert.equal(h.choiceButtons()[1].getAttribute('aria-pressed'), 'true');
+  assert.match(h.elements['#result'].innerHTML, /without, but for/);
+  assert.equal(translations, 0);
+});
+
+test('different inline senses of one word stay selectable instead of collapsing by URL', async () => {
+  const h = harness();
+  await tick();
+  const url = 'https://www.verbformen.com/?w=doch&l=11';
+  const entryChoices = ['however', 'nevertheless'].map(meaning => ({ lemma: 'doch', label: 'conjunction · doch', partOfSpeech: 'conjunction', url,
+    data: germanEntry('doch', { meaning, article: '', title: 'German conjunction doch', partOfSpeech: 'conjunction', sourceUrl: url }) }));
+  h.context.renderGermanEntry({ ...entryChoices[0].data, entryChoices });
+  assert.equal(h.choiceButtons().length, 2);
+  assert.match(h.elements['#result'].innerHTML, /conjunction · however/);
+  assert.match(h.elements['#result'].innerHTML, /conjunction · nevertheless/);
+  h.choiceButtons()[1].listeners.click();
+  assert.equal(h.choiceButtons()[1].getAttribute('aria-pressed'), 'true');
+  assert.match(h.elements['#result'].innerHTML, /class="gloss"[^>]*>nevertheless/);
+  assert.equal(h.requests.length, 0);
+});
+
 test('manual English searches never fall back to translating their input as German', async () => {
   for (const serviceError of [false, true]) {
     let calls = 0;

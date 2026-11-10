@@ -140,7 +140,7 @@ function openSavedWord(entry) {
   input.value = entry.lemma;
   chrome.storage.local.set({ lookupWord: entry.lemma, lookupMode: "de-en" }).catch(() => {});
   const url = dictionaryEntryUrl(entry.sourceUrl, "https://www.verbformen.com/");
-  return runLookup(entry.lemma, url ? { entry: { ...entry, url }, savedEntry: true } : null);
+  return runLookup(entry.lemma, url ? { entry: { ...entry, url }, savedEntry: true } : null, { savedPartOfSpeech: entry.partOfSpeech });
 }
 
 async function deleteSavedWord(id) {
@@ -433,6 +433,10 @@ async function runLookup(word, detail = null, options = {}) {
         found = { data: parseVerbformen(page.html, word, page.sourceUrl), sourceUrl: page.sourceUrl };
       }
       if (sequence !== lookupSequence) return;
+      if (found?.data && options.savedPartOfSpeech) {
+        const choice = (found.data.entryChoices || []).find(entry => entry.data && entry.partOfSpeech === options.savedPartOfSpeech);
+        if (choice) found.data = { ...choice.data, word, entryChoices: found.data.entryChoices };
+      }
       if (detail?.previousData && !detail.variantKind && found && found.data.lemma.toLowerCase() !== detail.entry.lemma.toLowerCase()) throw new Error(t("noun_variant_not_found"));
       if (detail?.variantKind && found && (!isGermanEntryMatch(found.data, detail.variantKind === "entry" ? detail.entry.lemma : word)
         || (detail.variantKind === "entry" && found.data.partOfSpeech !== detail.entry.partOfSpeech))) throw new Error(t("entry_unverified"));
@@ -537,9 +541,15 @@ function renderGermanEntry(data, backState, message = "") {
   const selectedDegree = degrees.findIndex(entry => new URL(entry.url).pathname === sourcePath);
   const comparison = degrees.length > 1 ? `<div class="noun-variants" role="group" aria-label="${escapeHtml(t("adjective_degree_label"))}">${degrees.map((entry, index) => `<button type="button" class="noun-variant" data-degree="${index}" aria-pressed="${index === (selectedDegree >= 0 ? selectedDegree : 0)}">${escapeHtml(uiGrammarLabel(entry.label))}</button>`).join("")}</div>` : "";
   const choices = mergeEntryChoices(data.entryChoices);
-  const selectedChoiceByUrl = choices.findIndex(entry => new URL(entry.url).pathname === sourcePath);
-  const selectedChoice = selectedChoiceByUrl >= 0 ? selectedChoiceByUrl : choices.findIndex(entry => entry.partOfSpeech === data.partOfSpeech && normalizeGermanForm(entry.lemma) === normalizeGermanForm(data.lemma));
-  const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 ? `<div class="noun-variants" role="group" aria-label="${escapeHtml(t("dictionary_entries_label"))}">${choices.map((entry, index) => `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${index === selectedChoice}">${escapeHtml(entryChoiceLabel(entry))}</button>`).join("")}</div>` : "";
+  const selectedChoiceByUrl = choices.findIndex(entry => dictionaryEntryUrl(entry.url, data.sourceUrl) && new URL(entry.url).pathname === sourcePath);
+  const selectedInline = choices.findIndex(entry => entry.data && entry.data.partOfSpeech === data.partOfSpeech && entry.data.lemma === data.lemma && entry.data.meaning === data.meaning);
+  const selectedChoice = selectedChoiceByUrl >= 0 ? selectedChoiceByUrl : selectedInline >= 0 ? selectedInline : choices.findIndex(entry => entry.partOfSpeech === data.partOfSpeech && normalizeGermanForm(entry.lemma) === normalizeGermanForm(data.lemma));
+  const multipleInline = choices.filter(entry => entry.data).length > 1;
+  const choiceButtons = new Set(choices.map(entry => entry.partOfSpeech)).size > 1 || multipleInline ? `<div class="noun-variants" role="group" aria-label="${escapeHtml(t("dictionary_entries_label"))}">${choices.map((entry, index) => {
+    const sameType = entry.data && choices.some(other => other !== entry && other.partOfSpeech === entry.partOfSpeech);
+    const label = sameType ? entryChoiceLabel({ ...entry, label: entry.data.meaning }) : entryChoiceLabel(entry);
+    return `<button type="button" class="noun-variant" data-entry-choice="${index}" aria-pressed="${index === selectedChoice}">${escapeHtml(label)}</button>`;
+  }).join("")}</div>` : "";
   const meaning = data.meaning || (data.meaningState === "unavailable" ? t("english_meaning_unavailable") : t("finding_english_meaning"));
   result.innerHTML = `${backState ? backButton() : ""}<div class="result-head"><div><div class="word-heading"><h1 class="word-title" lang="de">${escapeHtml(data.lemma)}</h1>${saveButton}</div><p class="ipa">${escapeHtml(data.ipa[0] || "")}</p></div>${audioButtons}</div>${choiceButtons}${variants}${comparison}<p class="gloss" lang="en">${escapeHtml(meaning)}</p>${meaningAttribution(data.meaningSource)}${tags ? `<div class="grammar">${tags}</div>` : ""}${notes}${message ? `<p class="error variant-error">${escapeHtml(message)}</p>` : ""}${data.principalParts ? `<p class="principal-parts">${escapeHtml(data.principalParts)}</p>` : ""}${tables ? `<div class="inflection-grid">${tables}</div>` : ""}<p class="audio-status muted" role="status"></p>`;
   for (const [selector, entries, variantKind] of [["[data-degree]", degrees, "comparison"], ["[data-entry-choice]", choices, "entry"]]) {
@@ -547,6 +557,12 @@ function renderGermanEntry(data, backState, message = "") {
       if (button.getAttribute("aria-pressed") === "true") return;
       const index = Number(variantKind === "comparison" ? button.dataset.degree : button.dataset.entryChoice);
       const entry = entries[index];
+      if (variantKind === "entry" && entry.data && !dictionaryEntryUrl(entry.url, data.sourceUrl)) {
+        cancelLookup();
+        sourceLink.href = entry.data.sourceUrl;
+        renderGermanEntry({ ...entry.data, word: data.word, entryChoices: choices }, backState);
+        return;
+      }
       if (!dictionaryEntryUrl(entry.url, data.sourceUrl)) return;
       runLookup(data.word, { entry, previousData: data, backState, variantKind });
     }));

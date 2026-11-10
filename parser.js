@@ -196,13 +196,25 @@ function mergeEntryChoices(...lists) {
   const seen = new Set();
   const adjectives = new Set();
   return lists.flatMap(list => list || []).filter(entry => {
-    const url = dictionaryEntryUrl(entry.url, "https://www.verbformen.com/");
+    const key = entryChoiceKey(entry);
     const adjective = entry.partOfSpeech === "adjective" ? normalizeGermanForm(entry.lemma) : "";
-    if (!url || seen.has(url) || (adjective && adjectives.has(adjective))) return false;
-    seen.add(url);
+    if (!key || seen.has(key) || (adjective && adjectives.has(adjective))) return false;
+    seen.add(key);
     if (adjective) adjectives.add(adjective);
     return true;
   }).slice(0, 8);
+}
+
+function entryChoiceKey(entry) {
+  const url = dictionaryEntryUrl(entry.url, "https://www.verbformen.com/");
+  if (url) return url;
+  const data = entry.data;
+  if (!data || !data.meaning || data.partOfSpeech !== entry.partOfSpeech || !isGermanEntryMatch(data, entry.lemma)) return null;
+  try {
+    const source = new URL(data.sourceUrl);
+    if (source.origin !== "https://www.verbformen.com" || source.username || source.password) return null;
+  } catch { return null; }
+  return `inline:${JSON.stringify([normalizeGermanForm(data.lemma), data.partOfSpeech, data.article || "", data.meaning])}`;
 }
 
 function extractWordTypeVariants(doc, lemma, partOfSpeech, sourceUrl, canonicalUrl) {
@@ -412,7 +424,7 @@ function parseEnglishResults(html, query, sourceUrl) {
       const label = candidate.link.textContent.replace(/·/g, "").replace(/\s+/g, " ").trim();
       const lemma = label.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "");
       const article = pos === "noun" ? text.match(/\b(der|die|das)\b/)?.[1] || (text.includes("feminine") ? "die" : text.includes("masculine") ? "der" : /\b(neutral|neuter)\b/.test(text) ? "das" : "") : "";
-      const signature = `${candidate.url}|${gloss}`;
+      const signature = `${candidate.url}|${pos}|${lemma}|${article}|${gloss}`;
       if (!seen.has(signature)) {
         results.push({ lemma, label: article ? `${article} ${lemma}` : lemma, partOfSpeech: pos, meaning: gloss, url: candidate.url });
         seen.add(signature);
@@ -421,7 +433,7 @@ function parseEnglishResults(html, query, sourceUrl) {
     }
   }
   for (const entry of parseSearchCards(html, sourceUrl)) {
-    const signature = `${entry.url}|${entry.meaning}`;
+    const signature = `${entry.url}|${entry.partOfSpeech}|${entry.lemma}|${entry.data?.article || ""}|${entry.meaning}`;
     if (englishGlossMatches(entry.meaning, query) && !seen.has(signature)) {
       results.push(entry);
       seen.add(signature);
@@ -437,42 +449,62 @@ function parseEnglishResults(html, query, sourceUrl) {
   return results;
 }
 
+function searchCardSummaries(doc) {
+  const summaryPattern = new RegExp(`^(?:[ABC][12]\\s*·\\s*)?(?:${DICTIONARY_WORD_TYPES})(?:\\s*·|$)`, "i");
+  const text = node => cleanDictionaryText(node.textContent).replace(/\s+/g, " ");
+  const normalized = node => text(node).replace(/^[ABC][12]\s*·\s*/i, "");
+  const candidates = [...doc.querySelectorAll("p,small")].filter(node => text(node).length < 220 && summaryPattern.test(text(node)));
+  // A paragraph and its nested small element can describe the same summary.
+  // Keep the outer equivalent node (and its CEFR level), not two candidates.
+  return candidates.filter(node => !candidates.some(other => other !== node && node.contains(other) && normalized(node) !== normalized(other))
+    && !candidates.some(other => other !== node && other.contains(node) && normalized(node) === normalized(other)));
+}
+
+function searchCardSections(doc) {
+  const summaries = searchCardSummaries(doc);
+  return summaries.map((summary, index) => {
+    const range = document.createRange();
+    range.setStartBefore(summary);
+    if (summaries[index + 1]) range.setEndBefore(summaries[index + 1]);
+    else range.setEnd(doc, doc.childNodes.length);
+    const template = document.createElement("template");
+    template.innerHTML = "<section></section>";
+    const card = template.content.firstElementChild;
+    card.appendChild(range.cloneContents());
+    range.detach();
+    return { summary, card };
+  });
+}
+
 function parseSearchCards(html, sourceUrl) {
   const doc = parseDictionaryDocument(html);
-  const summaryPattern = new RegExp(`^(?:[ABC][12]\\s*·\\s*)?(?:${DICTIONARY_WORD_TYPES})(?:\\s*·|$)`, "i");
-  const summaries = [...doc.querySelectorAll("p,small")].filter((node) => summaryPattern.test(cleanDictionaryText(node.textContent).replace(/\s+/g, " ")));
   const cards = [];
   const seen = new Set();
-  for (const summary of summaries) {
-    let card = summary.parentElement;
-    for (let depth = 0; card && depth < 7; depth++, card = card.parentElement) {
-      if (summaries.filter((node) => card.contains(node)).length > 1) break;
-      const meaning = extractEnglishMeaning(card, null, cleanDictionaryText);
-      const summaryText = cleanDictionaryText(summary.textContent).replace(/\s+/g, " ");
-      const lines = dictionaryText(card).split("\n").map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
-      const index = lines.findIndex((line) => line === summaryText);
-      if (index < 0 || !lines[index + 1]) continue;
-      const rawLabel = cleanHeadword(lines[index + 1]);
-      const lemma = rawLabel.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "").replace(/\s*·\s*/g, "");
-      if (!/^[\p{L}]+(?:[ '-][\p{L}]+)*$/u.test(lemma)) continue;
-      const metadata = parseGrammarSummary(summaryText, "");
-      const type = metadata.partOfSpeech;
-      if (!type) continue;
-      const encode = (value) => value.replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char]);
-      const entryHtml = `<main><h1>German ${type} ${encode(lemma)}</h1>${card.outerHTML}</main>`;
-      const data = parseVerbformen(entryHtml, lemma, sourceUrl);
-      const links = [...card.querySelectorAll("a[href]")].map((link) => ({ text: normalizeGermanForm(cleanHeadword(link.textContent)), url: dictionaryEntryUrl(link.getAttribute("href"), sourceUrl) })).filter((entry) => entry.url);
-      const urls = [...new Set(links.map((entry) => entry.url))];
-      const detailUrl = links.find((entry) => entry.text === normalizeGermanForm(lemma) || entry.text.endsWith(` ${normalizeGermanForm(lemma)}`))?.url || (urls.length === 1 ? urls[0] : null);
-      if (!meaning && !detailUrl && !data.inflectionTables.length) continue;
-      const article = type === "noun" ? rawLabel.match(/\b(der|die|das)\b/i)?.[1] || (metadata.grammarTags.includes("feminine") ? "die" : metadata.grammarTags.includes("masculine") ? "der" : metadata.grammarTags.some((tag) => /^(neutral|neuter)$/.test(tag)) ? "das" : "") : "";
-      const url = detailUrl || sourceUrl;
-      const signature = `${type}|${lemma}|${article}|${detailUrl || ""}|${meaning}`;
-      if (!seen.has(signature)) {
-        cards.push({ lemma, label: article ? `${article} ${lemma}` : lemma, partOfSpeech: type, meaning, url, detailUrl, data });
-        seen.add(signature);
-      }
-      break;
+  for (const { summary, card } of searchCardSections(doc)) {
+    const meaning = extractEnglishMeaning(card, null, cleanDictionaryText);
+    const summaryText = cleanDictionaryText(summary.textContent).replace(/\s+/g, " ");
+    const lines = dictionaryText(card).split("\n").map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const index = lines.findIndex((line) => line === summaryText);
+    if (index < 0 || !lines[index + 1]) continue;
+    const rawLabel = cleanHeadword(lines[index + 1]);
+    const lemma = rawLabel.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "").replace(/\s*·\s*/g, "");
+    if (!/^[\p{L}]+(?:[ '-][\p{L}]+)*$/u.test(lemma)) continue;
+    const metadata = parseGrammarSummary(summaryText, "");
+    const type = metadata.partOfSpeech;
+    if (!type) continue;
+    const encode = (value) => value.replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char]);
+    const entryHtml = `<main><h1>German ${type} ${encode(lemma)}</h1>${card.outerHTML}</main>`;
+    const data = parseVerbformen(entryHtml, lemma, sourceUrl);
+    const links = [...card.querySelectorAll("a[href]")].map((link) => ({ text: normalizeGermanForm(cleanHeadword(link.textContent)), url: dictionaryEntryUrl(link.getAttribute("href"), sourceUrl) })).filter((entry) => entry.url);
+    const urls = [...new Set(links.map((entry) => entry.url))];
+    const detailUrl = links.find((entry) => entry.text === normalizeGermanForm(lemma) || entry.text.endsWith(` ${normalizeGermanForm(lemma)}`))?.url || (urls.length === 1 ? urls[0] : null);
+    if (!meaning && !detailUrl && !data.inflectionTables.length) continue;
+    const article = type === "noun" ? rawLabel.match(/\b(der|die|das)\b/i)?.[1] || (metadata.grammarTags.includes("feminine") ? "die" : metadata.grammarTags.includes("masculine") ? "der" : metadata.grammarTags.some((tag) => /^(neutral|neuter)$/.test(tag)) ? "das" : "") : "";
+    const url = detailUrl || sourceUrl;
+    const signature = `${type}|${lemma}|${article}|${detailUrl || ""}|${meaning}`;
+    if (!seen.has(signature)) {
+      cards.push({ lemma, label: article ? `${article} ${lemma}` : lemma, partOfSpeech: type, meaning, url, detailUrl, data });
+      seen.add(signature);
     }
   }
   return cards;

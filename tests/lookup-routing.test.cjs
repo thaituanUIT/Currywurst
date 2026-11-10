@@ -70,6 +70,18 @@ test('search-only adverbs, conjunctions, and particles can return inline entries
   }
 });
 
+test('ohne resolves two exact inline candidates and preserves both without fetching another page', async () => {
+  const cards = ['preposition', 'conjunction'].map(partOfSpeech => ({ lemma: 'ohne', label: 'ohne', partOfSpeech, detailUrl: null,
+    data: { title: `German ${partOfSpeech} ohne`, lemma: 'ohne', partOfSpeech, meaning: 'without', inflectionTables: [] } }));
+  const h = harness(() => ({ html: { cards } }));
+  const result = await h.context.lookupGermanEntry('ohne', h.load, h.signal);
+  assert.equal(result.data.lemma, 'ohne');
+  assert.equal(result.data.partOfSpeech, 'preposition');
+  assert.deepEqual(Array.from(result.data.entryChoices, entry => entry.partOfSpeech), ['preposition', 'conjunction']);
+  assert.equal(h.calls.length, 1);
+  assert.equal(result.data.entryChoices[1].data.meaning, 'without');
+});
+
 test('inflected nouns, adjectives, articles, and pronouns retain their entry types', async () => {
   for (const [query, lemma, type] of [['Häusern','Haus','noun'], ['kleineren','klein','adjective'], ['einem','ein','article'], ['meiner','ich','pronoun']]) {
     const data = { title: `German ${type} ${lemma}`, lemma, meaning: 'example', partOfSpeech: type, inflectionTables: [{ title: 'Dative', rows: [['Dat.',query]] }] };

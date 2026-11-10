@@ -41,7 +41,9 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     const directMatch = isGermanEntryMatch(data, word);
     const entryChoices = mergeEntryChoices(directMatch ? data.entryChoices : [], cards.flatMap(entry => entry.data.entryChoices || []), cards.flatMap(entry => {
       const url = dictionaryEntryUrl(entry.detailUrl || entry.url, page.sourceUrl);
-      return url ? [{ lemma: entry.data.lemma, partOfSpeech: entry.data.partOfSpeech, label: `${entry.data.partOfSpeech || "Entry"} · ${entry.label || entry.data.lemma}`, url }] : [];
+      const choice = { lemma: entry.data.lemma, partOfSpeech: entry.data.partOfSpeech, label: `${entry.data.partOfSpeech || "Entry"} · ${entry.label || entry.data.lemma}`, url: url || page.sourceUrl };
+      if (!url) choice.data = { ...entry.data, word, sourceUrl: page.sourceUrl };
+      return [choice];
     }));
     if (directMatch) return completeEntry({ ...data, entryChoices }, page.sourceUrl);
     const card = cards[0];
