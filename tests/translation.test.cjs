@@ -112,3 +112,17 @@ test('invalid or oversized input sends no request and entity decoding stays plai
   assert.equal(context.decodeTranslationText('&lt;img src=x onerror=alert(1)&gt;'), '<img src=x onerror=alert(1)>');
   assert.equal(context.decodeTranslationText('&#x110000; &#xD800;'), '&#x110000; &#xD800;');
 });
+
+test('a decomposed German echo is not presented as an English translation', async () => {
+  const word = 'Unverhältnismäßigkeit';
+  const h = harness({ responseStatus: 200, responseData: { translatedText: word.normalize('NFD') } });
+  assert.equal(await h.translate(word), null);
+  assert.equal(h.calls.length, 1);
+});
+
+test('a malformed stored translation cache does not block a fresh translation', async () => {
+  const h = harness({ responseStatus: 200, responseData: { translatedText: 'fear of missed opportunities' } });
+  h.state.translationCache = null;
+  assert.equal((await h.translate('Torschlusspanik'))?.meaning, 'fear of missed opportunities');
+  assert.equal(h.calls.length, 1);
+});

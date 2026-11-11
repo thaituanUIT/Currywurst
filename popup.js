@@ -29,6 +29,9 @@ let undoTimer;
 const savedList = document.querySelector("#saved-list");
 const savedStatus = document.querySelector("#saved-status");
 const undoButton = document.querySelector("#undo-delete");
+// Reading local storage does not need a background message receiver.
+// Mutations still go through the worker's shared queue across popup windows.
+const savedWordsReader = createSavedWordsStore(chrome.storage.local);
 
 document.querySelector("#lookup-tab").addEventListener("click", () => setView("lookup"));
 document.querySelector("#saved-tab").addEventListener("click", () => {
@@ -55,8 +58,19 @@ function setView(nextView) {
 
 async function savedWordsRequest(action, values = {}) {
   const sequence = ++savedSequence;
-  const response = await chrome.runtime.sendMessage({ type: "savedWords", action, ...values });
-  if (!response?.ok) throw Object.assign(new Error(response?.error || t("saved_access_error")), { messageKey: response?.messageKey });
+  let response;
+  if (action === "list") {
+    response = { ok: true, ...await savedWordsReader.list() };
+  } else {
+    try {
+      response = await chrome.runtime.sendMessage({ type: "savedWords", action, ...values });
+    } catch (error) {
+      if (!/Could not establish connection\. Receiving end does not exist\.?/i.test(error?.message || "")) throw error;
+      throw Object.assign(new Error(t("saved_worker_unavailable")), { messageKey: "saved_worker_unavailable" });
+    }
+    if (!response) throw Object.assign(new Error(t("saved_worker_unavailable")), { messageKey: "saved_worker_unavailable" });
+  }
+  if (!response?.ok || !Array.isArray(response.words)) throw Object.assign(new Error(response?.error || t("saved_access_error")), { messageKey: response?.messageKey });
   if (sequence === savedSequence) {
     savedWords = response.words;
     savedReady = true;
@@ -81,7 +95,10 @@ async function loadSavedWords() {
     if (sequence !== savedSequence) return;
     savedLoadError = uiError(error);
     updateSaveButton();
-    if (view === "saved") setSavedStatus(uiError(error), true);
+    if (view === "saved") {
+      setSavedStatus(savedLoadError, true);
+      renderSavedWords();
+    }
   }
 }
 
@@ -122,7 +139,7 @@ async function saveCurrentWord() {
 
 function renderSavedWords() {
   const words = savedWords;
-  savedList.innerHTML = !savedReady ? `<p class="muted">${escapeHtml(savedLoadError || t("loading_saved"))}</p>`
+  savedList.innerHTML = !savedReady ? savedLoadError ? "" : `<p class="muted">${escapeHtml(t("loading_saved"))}</p>`
     : !words.length ? `<p class="hint">${escapeHtml(t("empty_saved"))}</p>`
     : words.map((word, index) => {
       const label = word.article ? `${word.article} ${word.lemma}` : word.lemma;
@@ -385,12 +402,16 @@ async function runLookup(word, detail = null, options = {}) {
   cancelLookup();
   const sequence = lookupSequence;
   let translationAttempted = false;
-  const controller = new AbortController();
+  let controller = new AbortController();
   activeController = controller;
   const requestedMode = mode;
-  const timeout = setTimeout(() => controller.abort(), options.automatic ? 25000 : 15000);
+  let dictionaryTimedOut = false;
+  const timeout = setTimeout(() => { dictionaryTimedOut = true; controller.abort(); }, options.automatic ? 25000 : 15000);
   const showBasicTranslation = async () => {
     translationAttempted = true;
+    // The translation adapter owns a four-second deadline. Give it that full
+    // allowance even if the dictionary consumed its own request deadline.
+    clearTimeout(timeout);
     result.innerHTML = `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(t("finding_translation"))}</span></div>`;
     const translation = await findBasicTranslation(word, controller.signal);
     if (sequence !== lookupSequence || !translation) return false;
@@ -462,7 +483,11 @@ async function runLookup(word, detail = null, options = {}) {
     }
   } catch (error) {
     if (sequence !== lookupSequence) return;
-    if (!detail && !translationAttempted && !controller.signal.aborted && (requestedMode === "de-en" || options.automatic)) {
+    if (!detail && !translationAttempted && (dictionaryTimedOut || !controller.signal.aborted) && (requestedMode === "de-en" || options.automatic)) {
+      if (dictionaryTimedOut) {
+        controller = new AbortController();
+        activeController = controller;
+      }
       try { if (await showBasicTranslation()) return; } catch { /* Keep the original lookup error if fallback is unavailable. */ }
       if (sequence !== lookupSequence) return;
     }
@@ -471,7 +496,7 @@ async function runLookup(word, detail = null, options = {}) {
       renderGermanEntry(detail.previousData, detail.backState, detail.variantKind ? t("entry_load_error") : t("noun_load_error"));
       return;
     }
-    result.innerHTML = `${detail?.backState ? backButton() : ""}<p class="error">${escapeHtml(controller.signal.aborted ? t("lookup_timeout") : uiError(error))}</p><button id="retry">${escapeHtml(t("retry_button"))}</button>`;
+    result.innerHTML = `${detail?.backState ? backButton() : ""}<p class="error">${escapeHtml(dictionaryTimedOut || controller.signal.aborted ? t("lookup_timeout") : uiError(error))}</p><button id="retry">${escapeHtml(t("retry_button"))}</button>`;
     document.querySelector("#retry").addEventListener("click", () => runLookup(word, detail, options));
     if (detail?.backState) document.querySelector("#back-results").addEventListener("click", () => { cancelLookup(); renderSearchResults(detail.backState); });
   } finally {

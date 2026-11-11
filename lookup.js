@@ -1,12 +1,16 @@
 // Resolve the requested word and verify its dictionary form.
 // These are bounded fallbacks, not a crawl.
 async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache = new Map() } = {}) {
+  const normalizedWord = word.normalize("NFC");
+  const nounSelection = /^\p{Lu}/u.test(normalizedWord);
+  const nounStems = germanNounCandidates(normalizedWord);
   const adjectiveCandidates = germanAdjectiveCandidates(word);
   const finiteVerbCandidates = germanPastTenseCandidates(word);
   const regularVerbCandidates = germanRegularVerbCandidates(word);
-  // Preserve the existing fallback allowance and reserve at most two extra
-  // requests for word-form recovery instead of exhausting it on noun guesses.
-  const requestLimit = 6 + Math.max(adjectiveCandidates.length, finiteVerbCandidates.length, regularVerbCandidates.length);
+  // Keep form recovery bounded: at most eight dictionary requests, or nine
+  // for a lowercase selection needing both adjective and three noun guesses.
+  const requestLimit = 6 + Math.max(adjectiveCandidates.length, finiteVerbCandidates.length, regularVerbCandidates.length)
+    + Number(!nounSelection && nounStems.length > 2);
   const load = async (url) => {
     signal.throwIfAborted();
     if (!cache.has(url)) {
@@ -59,11 +63,10 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
     }
     return null;
   };
-  const direct = await inspect(`https://www.verbformen.com/?w=${encodeURIComponent(word)}&l=11`);
+  const direct = await inspect(`https://www.verbformen.com/?w=${encodeURIComponent(normalizedWord)}&l=11`);
   if (direct || !recover) return direct;
-  const nounSelection = /^\p{Lu}/u.test(word);
   for (const path of [nounSelection ? "declension/nouns/" : "conjugation/", "search/"]) {
-    const found = await inspect(`https://www.verbformen.com/${path}?w=${encodeURIComponent(word)}&l=11`);
+    const found = await inspect(`https://www.verbformen.com/${path}?w=${encodeURIComponent(normalizedWord)}&l=11`);
     if (found) return found;
   }
   const inspectVerb = candidate => {
@@ -91,14 +94,19 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
   }
   // Query routes can miss a noun even when its dedicated page exists. Try
   // the unchanged noun before stripping endings that may be part of its stem.
-  const nounCandidates = /^[\p{L}-]{2,60}$/u.test(word)
-    ? [word.normalize("NFC").replace(/^./u, (letter) => letter.toLocaleUpperCase("de-DE")), ...germanNounCandidates(word)]
+  const nounCandidates = /^[\p{L}-]{2,60}$/u.test(normalizedWord)
+    ? [...new Set([normalizedWord.replace(/^./u, (letter) => letter.toLocaleUpperCase("de-DE")), ...nounStems])]
     : [];
-  for (const candidate of new Set(nounCandidates)) {
+  const inspectNoun = candidate => {
     const url = verbformenSlug(candidate)
       ? `https://www.verbformen.com/declension/nouns/${verbformenSlug(candidate)}.htm`
       : `https://www.verbformen.com/declension/nouns/?w=${encodeURIComponent(candidate)}&l=11`;
-    const found = await inspect(url);
+    return inspect(url);
+  };
+  // Preserve room for the second adjective candidate before spending an extra
+  // request on a third noun stem for lowercase, ambiguous selections.
+  for (const candidate of nounSelection ? nounCandidates : nounCandidates.slice(0, 3)) {
+    const found = await inspectNoun(candidate);
     if (found) return found;
   }
   for (const candidate of nounSelection ? remainingVerbs : []) {
@@ -107,6 +115,10 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
   }
   for (const candidate of adjectiveCandidates.slice(nounSelection ? 0 : 1)) {
     const found = await inspectAdjective(candidate);
+    if (found) return found;
+  }
+  for (const candidate of nounSelection ? [] : nounCandidates.slice(3)) {
+    const found = await inspectNoun(candidate);
     if (found) return found;
   }
   for (const candidate of germanImperativeCandidates(word)) {
@@ -118,6 +130,7 @@ async function lookupGermanEntry(word, loadPage, signal, { recover = true, cache
 }
 
 function germanAdjectiveCandidates(word) {
+  word = word.normalize("NFC");
   if (!/^[\p{L}-]{3,60}$/u.test(word)) return [];
   const value = word.normalize("NFC").toLocaleLowerCase("de-DE");
   if (value.endsWith("t")) return [value];
@@ -125,9 +138,10 @@ function germanAdjectiveCandidates(word) {
   if (!match) return [];
   const [, stem, ending] = match;
   const candidates = value.includes("ge") && /(?:en|t)$/.test(value) ? [value, stem] : [stem];
-  // A second bounded candidate covers final-e adjectives (leise), contracted
-  // stems (dunkel/teuer), or declined comparatives (kleineren -> klein).
-  if (stem.endsWith("er") && stem.length > 4) candidates.push(stem.slice(0, -2));
+  // Retain at most two candidates for final-e or contracted stems and
+  // comparison endings. Try a regular superlative's positive base first.
+  if (stem.endsWith("st") && stem.length > 5) candidates.unshift(stem.slice(0, stem.endsWith("est") ? -3 : -2));
+  else if (stem.endsWith("er") && stem.length > 4) candidates.push(stem.slice(0, -2));
   else if (/[lr]$/.test(stem)) candidates.push(`${stem.slice(0, -1)}e${stem.at(-1)}`);
   else if (ending !== "e" && !/[aeiouyäöü]$/.test(stem)) candidates.push(`${stem}e`);
   return [...new Set(candidates)].filter(candidate => candidate.length >= 2).slice(0, 2);
@@ -141,6 +155,7 @@ function verbformenSlug(word) {
 }
 
 function germanPastTenseCandidates(word) {
+  word = word.normalize("NFC");
   if (!/^[\p{L}]{4,60}$/u.test(word)) return [];
   const match = word.normalize("NFC").toLocaleLowerCase("de-DE").match(/^(.{2,})(?:test|tet|ten|te)$/u);
   if (!match) return [];
@@ -153,14 +168,17 @@ function infinitiveFromStem(stem) {
 }
 
 function germanRegularVerbCandidates(word) {
+  word = word.normalize("NFC");
   if (!/^[\p{L}]{4,60}$/u.test(word)) return [];
   const value = word.normalize("NFC").toLocaleLowerCase("de-DE");
   if (!value.endsWith("t")) return [];
   const stems = [];
   const simple = value.match(/^ge(.+)t$/u);
-  const separated = value.match(/^(ab|an|auf|aus|bei|ein|fest|fort|her|hin|los|mit|nach|nieder|statt|teil|um|vor|weg|weiter|wieder|zu|zurück|zusammen)ge(.+)t$/u);
+  // Suggest removing an internal ge- without restricting particles to a fixed
+  // list. A source-listed form must still verify the original selection.
+  const separated = value.match(/^(.{2,})ge(.+)t$/u);
+  if (separated) stems.push(separated[1] + separated[2]);
   if (simple) stems.push(simple[1]);
-  else if (separated) stems.push(separated[1] + separated[2]);
   // Inseparable prefixes such as ver-/be- do not require ge-. Also retain
   // literal stems where 'ge' belongs to the verb rather than the participle.
   stems.push(value.slice(0, -1));
@@ -168,18 +186,20 @@ function germanRegularVerbCandidates(word) {
 }
 
 function germanNounCandidates(word) {
+  word = word.normalize("NFC");
   if (!/^[\p{L}-]{3,60}$/u.test(word)) return [];
   const value = word.normalize("NFC");
   const capitalize = (text) => text[0].toLocaleUpperCase("de-DE") + text.slice(1);
   const withoutUmlaut = (text) => text.replace(/[äöüÄÖÜ]/g, (letter) => ({ ä: "a", ö: "o", ü: "u", Ä: "A", Ö: "O", Ü: "U" })[letter]);
   let stems = [];
-  if (/innen$/i.test(value)) stems = [value.slice(0, -3)];
+  if (/nisse[ns]?$/i.test(value)) stems = [value.replace(/nisse[ns]?$/i, "nis")];
+  else if (/innen$/i.test(value)) stems = [value.slice(0, -3)];
   else if (/ern$/i.test(value)) stems = [withoutUmlaut(value.slice(0, -1)), withoutUmlaut(value.slice(0, -3))];
-  else if (/n$/i.test(value)) stems = [value.slice(0, -1), value.replace(/en$/i, "")];
+  else if (/n$/i.test(value)) stems = [value.slice(0, -1), value.replace(/en$/i, ""), withoutUmlaut(value.slice(0, /en$/i.test(value) ? -2 : -1))];
   else if (/er$/i.test(value) && !/ier$/i.test(value)) stems = [withoutUmlaut(value.slice(0, -2)), value.slice(0, -2)];
   else if (/es$/i.test(value)) stems = [value.slice(0, -2), value.slice(0, -1)];
-  else if (/[es]$/i.test(value)) stems = [value.slice(0, -1)];
-  return [...new Set(stems.filter((stem) => stem.length >= 2 && stem !== value).map(capitalize))].slice(0, 2);
+  else if (/[es]$/i.test(value)) stems = [value.slice(0, -1), withoutUmlaut(value.slice(0, -1))];
+  return [...new Set(stems.filter((stem) => stem.length >= 2 && stem !== value).map(capitalize))].slice(0, 3);
 }
 
 function mergeNounVariants(data, extra) {
@@ -194,6 +214,7 @@ function mergeNounVariants(data, extra) {
 }
 
 function germanImperativeCandidates(word) {
+  word = word.normalize("NFC");
   if (!/^[\p{L}]{3,60}$/u.test(word) || /en$/i.test(word)) return [];
   const stem = word.toLocaleLowerCase("de-DE");
   return /(?:el|er)$/i.test(stem) && !/ier$/i.test(stem)

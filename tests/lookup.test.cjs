@@ -11,7 +11,12 @@ vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 function makeElement(dataset = {}) {
   return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; }, insertAdjacentHTML(position, html) { this.innerHTML += html; } };
 }
-function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null, locale = {}) {
+function fallbackRuntime() {
+  const context = vm.createContext({ URL, URLSearchParams, TextEncoder, AbortController, setTimeout, clearTimeout });
+  vm.runInContext(fs.readFileSync('meaning.js', 'utf8'), context);
+  return context;
+}
+function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null, locale = {}, sendSavedMessage) {
   const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry', '#lookup-tab', '#saved-tab', '#lookup-view', '#saved-view', '#saved-count', '#saved-list', '#saved-status', '#undo-delete', '#save-word', '#save-status'].map(id => [id, makeElement()]));
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
   const entryButton = makeElement({ entry: '0' });
@@ -55,7 +60,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
     }
     return [];
   };
-  const requests = [], saved = [];
+  const requests = [], saved = [], savedMessages = [];
   const context = vm.createContext({
     document: { documentElement: { dataset: {} }, querySelectorAll: () => [], querySelector: id => elements[id] }, window: {},
     chrome: { i18n: browserI18n(locale), storage: {
@@ -84,6 +89,8 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   context.createBasicTranslationFallback = () => basicLookup;
   const store = context.createSavedWordsStore(context.chrome.storage.local);
   context.chrome.runtime = { sendMessage: async message => {
+    savedMessages.push(message);
+    if (sendSavedMessage) return sendSavedMessage(message);
     try {
       const argument = message.action === 'remove' ? message.id : message.entry;
       return { ok: true, ...await store[message.action](argument) };
@@ -92,7 +99,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
   const respond = (index) => requests[index].resolve({ ok: true, text: async () => '', url: requests[index].url });
-  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons };
+  return { context, elements, requests, saved, savedMessages, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons };
 }
 
 test('latest search wins and manual searches persist', async () => {
@@ -384,6 +391,93 @@ test('Verbformen connection errors can use the basic fallback, while unavailable
   assert.doesNotMatch(missing.elements['#result'].innerHTML, /id="save-word"/);
 });
 
+test('a fresh missing word reaches the real translation adapter and can be saved with attribution', async () => {
+  const translationCalls = [], dictionaryCalls = [];
+  const translate = fallbackRuntime().createBasicTranslationFallback({ fetchImpl: async (url, options) => {
+    translationCalls.push({ url, options });
+    return { ok: true, url, json: async () => ({ responseStatus: 200, responseData: { translatedText: 'repurposing' } }) };
+  } });
+  const h = harness({}, {}, undefined, translate);
+  await tick();
+  h.context.fetch = async url => { dictionaryCalls.push(url); return { ok: true, url, text: async () => '' }; };
+  h.context.parseVerbformen = () => ({ title: 'All German words', lemma: '', meaning: '', inflectionTables: [] });
+  await h.context.runLookup('Zweckentfremdung');
+  assert.ok(dictionaryCalls.length > 1 && dictionaryCalls.length <= 9);
+  assert.equal(translationCalls.length, 1);
+  assert.equal(new URL(translationCalls[0].url).searchParams.get('q'), 'Zweckentfremdung');
+  assert.match(h.elements['#result'].innerHTML, /repurposing/);
+  assert.match(h.elements['#result'].innerHTML, /MyMemory/);
+  assert.match(h.elements['#result'].innerHTML, /data-speak="Zweckentfremdung"/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /<table|class="grammar"/);
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].meaning, 'repurposing');
+  assert.equal(h.savedState.savedWords[0].meaningSource.provider, 'MyMemory');
+});
+
+test('a dictionary deadline still permits the real basic fallback using a fresh cancellable signal', async () => {
+  let deadline, translationSignal;
+  const translate = fallbackRuntime().createBasicTranslationFallback({ fetchImpl: async (url, options) => {
+    translationSignal = options.signal;
+    return { ok: true, url, json: async () => ({ responseStatus: 200, responseData: { translatedText: 'fear of missed opportunities' } }) };
+  } });
+  const h = harness({}, {}, undefined, translate);
+  await tick();
+  h.context.setTimeout = (callback, delay) => delay === 15000 ? (deadline = callback, 0) : setTimeout(callback, delay);
+  h.context.fetch = (url, { signal }) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  const pending = h.context.runLookup('Torschlusspanik');
+  await tick();
+  deadline();
+  await pending;
+  assert.match(h.elements['#result'].innerHTML, /fear of missed opportunities/);
+  assert.equal(translationSignal.aborted, false);
+});
+
+test('a fallback started after a dictionary timeout still cancels on a mode switch', async () => {
+  let deadline, reply, signal;
+  const translate = fallbackRuntime().createBasicTranslationFallback({ fetchImpl: (url, options) => {
+    signal = options.signal;
+    return new Promise(resolve => { reply = () => resolve({ ok: true, url, json: async () => ({ responseStatus: 200, responseData: { translatedText: 'disproportionality' } }) }); });
+  } });
+  const h = harness({}, {}, undefined, translate);
+  await tick();
+  h.context.setTimeout = (callback, delay) => delay === 15000 ? (deadline = callback, 0) : setTimeout(callback, delay);
+  h.context.fetch = (url, { signal }) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  const pending = h.context.runLookup('Unverhältnismäßigkeit');
+  await tick();
+  deadline();
+  await tick();
+  assert.equal(typeof reply, 'function');
+  h.elements['#mode-toggle'].listeners.click();
+  reply();
+  await pending;
+  assert.equal(signal.aborted, true);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /disproportionality/);
+});
+
+test('the real meaning adapter fills a new verified noun without replacing its grammar or using basic translation', async () => {
+  const calls = [];
+  const find = fallbackRuntime().createEnglishMeaningFallback({ fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, url, json: async () => ({ parse: { title: 'Unwägbarkeit', revid: 456, text: 'controlled German noun section' } }) };
+  }, parsePage: () => ({ meaning: 'uncertainty; imponderability', related: [] }) });
+  const h = harness({}, {}, find, async () => assert.fail('Verified grammar should use the meaning adapter'));
+  await tick();
+  const rows = [['Nom.', 'die', 'Unwägbarkeit'], ['Gen.', 'der', 'Unwägbarkeit'], ['Dat.', 'der', 'Unwägbarkeit'], ['Acc.', 'die', 'Unwägbarkeit']];
+  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Unwägbarkeit', { word, sourceUrl, title: 'German noun Unwägbarkeit', meaning: '', inflectionTables: [{ title: 'Singular', rows, cells: rows.map(row => row.map(() => ({ header: false, rowSpan: 1, colSpan: 1 }))) }] });
+  const pending = h.context.runLookup('Unwägbarkeit');
+  h.respond(0);
+  await pending;
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(new URL(calls[0].url).searchParams.get('page'), 'Unwägbarkeit');
+  assert.match(h.elements['#result'].innerHTML, /uncertainty; imponderability/);
+  assert.match(h.elements['#result'].innerHTML, /Nom\./);
+  assert.match(h.elements['#result'].innerHTML, /Wiktionary/);
+  assert.match(h.elements['#result'].innerHTML, /CC BY-SA 4\.0/);
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].meaningSource.revisionId, 456);
+});
+
 test('a late basic translation cannot replace another word or survive a direction switch', async () => {
   let finish, signal;
   const h = harness({}, {}, async () => null, (word, pendingSignal) => { signal = pendingSignal; return new Promise(resolve => { finish = resolve; }); });
@@ -635,6 +729,68 @@ test('switching a noun gender loads the chosen entry and preserves the original 
 });
 
 const germanEntry = (lemma, extra = {}) => ({ word: lemma, lemma, meaning: 'English meaning', partOfSpeech: 'noun', article: 'die', ipa: [], audio: [], inflectionTables: [], ...extra });
+
+test('empty saved lists load and reopen without a background message receiver', async () => {
+  for (const state of [{}, { savedWords: [] }]) {
+    const h = harness(state, {}, undefined, undefined, {}, async () => {
+      throw new Error('Could not establish connection. Receiving end does not exist.');
+    });
+    await tick();
+    for (let visit = 0; visit < 2; visit++) {
+      h.elements['#saved-tab'].listeners.click();
+      await tick();
+      assert.match(h.elements['#saved-list'].innerHTML, /No saved words yet/);
+      assert.equal(h.elements['#saved-count'].textContent, '0/100');
+      assert.equal(h.elements['#saved-status'].textContent, '');
+      h.elements['#lookup-tab'].listeners.click();
+    }
+    assert.equal(h.savedMessages.length, 0);
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.saved.length, 0);
+  }
+});
+
+test('saved words remain readable when the background receiver is unavailable', async () => {
+  const h = harness({ savedWords: [germanEntry('Bruder', { article: 'der' })] }, {}, undefined, undefined, {}, async () => {
+    throw new Error('Could not establish connection. Receiving end does not exist.');
+  });
+  await tick();
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.match(h.elements['#saved-list'].innerHTML, /der Bruder/);
+  assert.equal(h.elements['#saved-count'].textContent, '1/100');
+  assert.equal(h.savedMessages.length, 0);
+  await h.deleteButtons()[0].listeners.click();
+  assert.equal(h.savedState.savedWords.length, 1);
+  assert.match(h.elements['#saved-list'].innerHTML, /der Bruder/);
+  assert.match(h.elements['#saved-status'].textContent, /Reload Currywurst/);
+  assert.doesNotMatch(h.elements['#saved-status'].textContent, /Receiving end/);
+  assert.equal(h.savedMessages.length, 1);
+});
+
+test('saving without a background receiver reports recovery and never writes from the popup', async () => {
+  for (const reply of [async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); }, async () => undefined]) {
+    const h = harness({}, {}, undefined, undefined, {}, reply);
+    await tick();
+    h.context.renderGermanEntry(germanEntry('Haus'));
+    await h.context.saveCurrentWord();
+    assert.match(h.elements['#save-status'].textContent, /Reload Currywurst/);
+    assert.equal(h.elements['#save-word'].textContent, 'Save');
+    assert.equal(h.savedState.savedWords, undefined);
+    assert.equal(h.savedMessages.length, 1);
+  }
+});
+
+test('saved-list read failures appear once and do not claim the list is empty', async () => {
+  const state = {};
+  Object.defineProperty(state, 'savedWords', { enumerable: true, get() { throw new Error('Storage unavailable'); } });
+  const h = harness(state);
+  await tick();
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.equal(h.elements['#saved-status'].textContent, 'Storage unavailable');
+  assert.doesNotMatch(h.elements['#saved-list'].innerHTML, /Storage unavailable|No saved words yet|Loading saved words/);
+});
 
 test('save stores the lemma and English meaning once, with an offline list after reopening', async () => {
   const state = {};
