@@ -11,6 +11,11 @@ vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 function makeElement(dataset = {}) {
   return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; }, insertAdjacentHTML(position, html) { this.innerHTML += html; } };
 }
+function fallbackRuntime() {
+  const context = vm.createContext({ URL, URLSearchParams, TextEncoder, AbortController, setTimeout, clearTimeout });
+  vm.runInContext(fs.readFileSync('meaning.js', 'utf8'), context);
+  return context;
+}
 function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null, locale = {}, sendSavedMessage) {
   const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry', '#lookup-tab', '#saved-tab', '#lookup-view', '#saved-view', '#saved-count', '#saved-list', '#saved-status', '#undo-delete', '#save-word', '#save-status'].map(id => [id, makeElement()]));
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
@@ -384,6 +389,93 @@ test('Verbformen connection errors can use the basic fallback, while unavailable
   await missing.context.runLookup('unknownword');
   assert.match(missing.elements['#result'].innerHTML, /No dictionary entry or translation found/);
   assert.doesNotMatch(missing.elements['#result'].innerHTML, /id="save-word"/);
+});
+
+test('a fresh missing word reaches the real translation adapter and can be saved with attribution', async () => {
+  const translationCalls = [], dictionaryCalls = [];
+  const translate = fallbackRuntime().createBasicTranslationFallback({ fetchImpl: async (url, options) => {
+    translationCalls.push({ url, options });
+    return { ok: true, url, json: async () => ({ responseStatus: 200, responseData: { translatedText: 'repurposing' } }) };
+  } });
+  const h = harness({}, {}, undefined, translate);
+  await tick();
+  h.context.fetch = async url => { dictionaryCalls.push(url); return { ok: true, url, text: async () => '' }; };
+  h.context.parseVerbformen = () => ({ title: 'All German words', lemma: '', meaning: '', inflectionTables: [] });
+  await h.context.runLookup('Zweckentfremdung');
+  assert.ok(dictionaryCalls.length > 1 && dictionaryCalls.length <= 9);
+  assert.equal(translationCalls.length, 1);
+  assert.equal(new URL(translationCalls[0].url).searchParams.get('q'), 'Zweckentfremdung');
+  assert.match(h.elements['#result'].innerHTML, /repurposing/);
+  assert.match(h.elements['#result'].innerHTML, /MyMemory/);
+  assert.match(h.elements['#result'].innerHTML, /data-speak="Zweckentfremdung"/);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /<table|class="grammar"/);
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].meaning, 'repurposing');
+  assert.equal(h.savedState.savedWords[0].meaningSource.provider, 'MyMemory');
+});
+
+test('a dictionary deadline still permits the real basic fallback using a fresh cancellable signal', async () => {
+  let deadline, translationSignal;
+  const translate = fallbackRuntime().createBasicTranslationFallback({ fetchImpl: async (url, options) => {
+    translationSignal = options.signal;
+    return { ok: true, url, json: async () => ({ responseStatus: 200, responseData: { translatedText: 'fear of missed opportunities' } }) };
+  } });
+  const h = harness({}, {}, undefined, translate);
+  await tick();
+  h.context.setTimeout = (callback, delay) => delay === 15000 ? (deadline = callback, 0) : setTimeout(callback, delay);
+  h.context.fetch = (url, { signal }) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  const pending = h.context.runLookup('Torschlusspanik');
+  await tick();
+  deadline();
+  await pending;
+  assert.match(h.elements['#result'].innerHTML, /fear of missed opportunities/);
+  assert.equal(translationSignal.aborted, false);
+});
+
+test('a fallback started after a dictionary timeout still cancels on a mode switch', async () => {
+  let deadline, reply, signal;
+  const translate = fallbackRuntime().createBasicTranslationFallback({ fetchImpl: (url, options) => {
+    signal = options.signal;
+    return new Promise(resolve => { reply = () => resolve({ ok: true, url, json: async () => ({ responseStatus: 200, responseData: { translatedText: 'disproportionality' } }) }); });
+  } });
+  const h = harness({}, {}, undefined, translate);
+  await tick();
+  h.context.setTimeout = (callback, delay) => delay === 15000 ? (deadline = callback, 0) : setTimeout(callback, delay);
+  h.context.fetch = (url, { signal }) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  const pending = h.context.runLookup('Unverhältnismäßigkeit');
+  await tick();
+  deadline();
+  await tick();
+  assert.equal(typeof reply, 'function');
+  h.elements['#mode-toggle'].listeners.click();
+  reply();
+  await pending;
+  assert.equal(signal.aborted, true);
+  assert.doesNotMatch(h.elements['#result'].innerHTML, /disproportionality/);
+});
+
+test('the real meaning adapter fills a new verified noun without replacing its grammar or using basic translation', async () => {
+  const calls = [];
+  const find = fallbackRuntime().createEnglishMeaningFallback({ fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, url, json: async () => ({ parse: { title: 'Unwägbarkeit', revid: 456, text: 'controlled German noun section' } }) };
+  }, parsePage: () => ({ meaning: 'uncertainty; imponderability', related: [] }) });
+  const h = harness({}, {}, find, async () => assert.fail('Verified grammar should use the meaning adapter'));
+  await tick();
+  const rows = [['Nom.', 'die', 'Unwägbarkeit'], ['Gen.', 'der', 'Unwägbarkeit'], ['Dat.', 'der', 'Unwägbarkeit'], ['Acc.', 'die', 'Unwägbarkeit']];
+  h.context.parseVerbformen = (_, word, sourceUrl) => germanEntry('Unwägbarkeit', { word, sourceUrl, title: 'German noun Unwägbarkeit', meaning: '', inflectionTables: [{ title: 'Singular', rows, cells: rows.map(row => row.map(() => ({ header: false, rowSpan: 1, colSpan: 1 }))) }] });
+  const pending = h.context.runLookup('Unwägbarkeit');
+  h.respond(0);
+  await pending;
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(new URL(calls[0].url).searchParams.get('page'), 'Unwägbarkeit');
+  assert.match(h.elements['#result'].innerHTML, /uncertainty; imponderability/);
+  assert.match(h.elements['#result'].innerHTML, /Nom\./);
+  assert.match(h.elements['#result'].innerHTML, /Wiktionary/);
+  assert.match(h.elements['#result'].innerHTML, /CC BY-SA 4\.0/);
+  await h.context.saveCurrentWord();
+  assert.equal(h.savedState.savedWords[0].meaningSource.revisionId, 456);
 });
 
 test('a late basic translation cannot replace another word or survive a direction switch', async () => {

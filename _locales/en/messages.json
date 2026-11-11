@@ -120,6 +120,12 @@
       }
     }
   },
+  "support_link": {
+    "message": "Buy me a coffee"
+  },
+  "support_link_title": {
+    "message": "Support Currywurst on Ko-fi (opens in a new tab)"
+  },
   "saved_access_error": {
     "message": "Could not access saved words. Please try again."
   },

@@ -349,19 +349,43 @@ function isGermanEntryMatch(entry, word) {
   if (!knownTitle || (!entry.meaning && !entry.inflectionTables?.length && !dictionaryEntryUrl(entry.sourceUrl, "https://www.verbformen.com/"))) return false;
   const query = normalizeGermanForm(word);
   if (!query) return false;
+  const verb = entry.partOfSpeech === "verb" || /\bverb\s/i.test(entry.title);
+  const auxiliary = /^(?:hab(?:e|en|t|est|et)|hast|hat|hatt(?:e|est|et|en)|hätt(?:e|est|et|en)|bin|bist|ist|sind|seid|sei(?:est|et|en)?|war(?:st|t|en)?|wär(?:e|est|et|en)|werd(?:e|en|et)|wirst|wird|wurd(?:e|est|et|en)|würd(?:e|est|et|en)|sein)$/i;
+  const withoutAuxiliaries = form => {
+    const words = form.split(" ");
+    return words.length > 1 ? words.filter(word => !auxiliary.test(word)).join(" ") : form;
+  };
   if (expandGermanForms(entry.lemma).includes(query)) return true;
   if ((entry.comparisonVariants || []).some(variant => expandGermanForms(variant.form).includes(query))) return true;
   if ((entry.headwordForms || []).some((form) => expandGermanForms(form).includes(query))) return true;
-  if ((entry.principalParts || "").split("·").some((part) => expandGermanForms(part).some((form) => form === query || form.split(" ").includes(query)))) return true;
-  return (entry.inflectionTables || []).some((table) => table.rows.some((row) => {
-    if (row.some((cell) => expandGermanForms(cell).includes(query))) return true;
-    if (expandGermanForms(row.join(" ")).some((form) => form === query || form.endsWith(` ${query}`) || form.split(" ").includes(query))) return true;
-    const verb = entry.partOfSpeech === "verb" || /\bverb\s/i.test(entry.title);
+  if ((entry.principalParts || "").split("·").some((part) => expandGermanForms(part).some((form) => {
+    const lexical = verb ? withoutAuxiliaries(form) : form.replace(/^am\s+/, "");
+    if (form === query || lexical === query) return true;
+    const words = lexical.split(" ");
+    const lemma = normalizeGermanForm(entry.lemma);
+    return verb && words.length === 2 && lemma !== words[1] && lemma.startsWith(words[1]) && words[1] + words[0] === query;
+  }))) return true;
+  return (entry.inflectionTables || []).some((table) => table.rows.some((row, rowIndex) => {
+    if (table.cells?.[rowIndex]?.length && table.cells[rowIndex].every(cell => cell.header)) return false;
+    // Labels, articles, and subjects identify a row; they are not evidence that
+    // this entry is an inflection of the selected word.
+    const label = /^(?:nom\.?|gen\.?|dat\.?|acc\.?|nominativ|genitiv|dativ|akkusativ|masc\.?|fem\.?|neut\.?|masculine|feminine|neutral|neuter|plural|singular|present|past|perfect|infinitive|participle|imperative)$/i;
+    const subject = /^(?:ich|du|er(?:\/sie\/es)?|sie|es|wir|ihr|mich|dich|sich|uns|euch|mir|dir|\((?:du|ihr|sie|wir)\))$/i;
+    let values = row.filter((cell, index) => !(index === 0 && label.test(normalizeGermanForm(cell))) && !(verb && subject.test(normalizeGermanForm(cell))));
+    const declined = entry.partOfSpeech === "noun" || entry.partOfSpeech === "adjective" || /\b(?:noun|adjective)\s/i.test(entry.title);
+    if (declined && values.length > 1 && expandGermanForms(values[0]).every(form => /^(?:d(?:er|ie|as|es|em|en)|(?:k?ein|mein|dein|sein|ihr|unser|euer)(?:e|er|es|em|en)?)$/i.test(form))) values = values.slice(1);
+    if (expandGermanForms(values.join(" ")).includes(query)) return true;
+    // Preserve the meaning-bearing particle when comparing separated verbs.
+    const last = normalizeGermanForm(values.at(-1) || "");
+    const lemma = normalizeGermanForm(entry.lemma);
+    const particle = verb && values.length >= 2 && /^[\p{L}-]+$/u.test(last) && lemma !== last && lemma.startsWith(last) ? last : "";
+    const matchesForm = form => particle ? query === particle + form || query === `${form} ${particle}` : query === form;
+    const lexicalValues = particle ? values.slice(0, -1) : values;
+    if (lexicalValues.some(cell => expandGermanForms(cell).some(form => {
+      if (verb && values.length > 1 && auxiliary.test(form)) return false;
+      return matchesForm(verb ? withoutAuxiliaries(form) : form);
+    }))) return true;
     if (!verb) return false;
-    // A separated particle can rejoin its verb in a subordinate clause.
-    const prefix = normalizeGermanForm(row.at(-1));
-    if (row.length >= 3 && prefix && normalizeGermanForm(entry.lemma).startsWith(prefix)
-      && expandGermanForms(row[1]).some((form) => prefix + form === query)) return true;
     // Accept a shortened du-imperative only when the source explicitly lists
     // that imperative. Do not drop mandatory e in arbeite, rede, atme, etc.
     const imperative = /imperativ/i.test(`${table.group || ""} ${table.title}`);
@@ -370,7 +394,7 @@ function isGermanEntryMatch(entry, word) {
     return expandGermanForms(imperativeForm).some((form) => {
       if (!form.endsWith("e")) return false;
       const stem = form.slice(0, -1);
-      return stem === query && !/(?:[dt]|[bcdfghjklpqstvwxz][mn])$/i.test(stem);
+      return matchesForm(stem) && !/(?:[dt]|[bcdfghjklpqstvwxz][mn])$/i.test(stem);
     });
   }));
 }

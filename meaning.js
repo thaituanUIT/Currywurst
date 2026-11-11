@@ -27,7 +27,8 @@ function createBasicTranslationFallback({ fetchImpl = fetch, storage, timeoutMs 
     const work = async () => {
       if (!cache.size && storage) {
         const { translationCache = {} } = await storage.get("translationCache").catch(() => ({}));
-        for (const [key, item] of Object.entries(translationCache).slice(-100)) if (item?.expires > Date.now()) cache.set(key, item);
+        const entries = translationCache && typeof translationCache === "object" && !Array.isArray(translationCache) ? Object.entries(translationCache) : [];
+        for (const [key, item] of entries.slice(-100)) if (item?.expires > Date.now()) cache.set(key, item);
       }
       controller.signal.throwIfAborted();
       const cached = cache.get(text);
@@ -41,7 +42,7 @@ function createBasicTranslationFallback({ fetchImpl = fetch, storage, timeoutMs 
       controller.signal.throwIfAborted();
       const raw = payload.responseData?.translatedText;
       if (Number(payload.responseStatus) !== 200 || payload.quotaFinished || typeof raw !== "string" || raw.length > 4000) return null;
-      const meaning = decodeTranslationText(raw);
+      const meaning = decodeTranslationText(raw).normalize("NFC");
       const value = meaning && meaning.toLocaleLowerCase("de-DE") !== text.toLocaleLowerCase("de-DE")
         ? { meaning, meaningSource: { provider: "MyMemory", url: "https://mymemory.translated.net/" } } : null;
       cache.set(text, { value, expires: Date.now() + (value ? 86400000 : 300000) });
@@ -148,7 +149,8 @@ function createEnglishMeaningFallback({ fetchImpl = fetch, parsePage = parseWikt
     const work = async () => {
       if (!cache.size && storage) {
         const { meaningCache = {} } = await storage.get("meaningCache").catch(() => ({}));
-        for (const [id, item] of Object.entries(meaningCache).slice(-100)) if (item?.expires > Date.now()) cache.set(id, item);
+        const entries = meaningCache && typeof meaningCache === "object" && !Array.isArray(meaningCache) ? Object.entries(meaningCache) : [];
+        for (const [id, item] of entries.slice(-100)) if (item?.expires > Date.now()) cache.set(id, item);
       }
       controller.signal.throwIfAborted();
       const cached = cache.get(key);
@@ -160,11 +162,14 @@ function createEnglishMeaningFallback({ fetchImpl = fetch, parsePage = parseWikt
         seen.add(title);
         const url = new URL("https://en.wiktionary.org/w/api.php");
         url.search = new URLSearchParams({ action: "parse", page: title, prop: "text", redirects: "1", format: "json", formatversion: "2" }).toString();
-        const response = await fetchImpl(url.href, { signal: controller.signal, credentials: "omit", headers: { Accept: "application/json" } });
+        const response = await fetchImpl(url.href, { signal: controller.signal, credentials: "omit", referrerPolicy: "no-referrer", headers: { Accept: "application/json" } });
         if (response.url && new URL(response.url).origin !== "https://en.wiktionary.org") throw new Error("Unexpected meaning-source redirect.");
-        if (!response.ok) break;
+        // An unavailable service is not evidence of an absent definition.
+        // Leave it uncached so Retry can recover as soon as the service does.
+        if (!response.ok) return null;
         const payload = await response.json();
         controller.signal.throwIfAborted();
+        if (payload?.error || typeof payload?.parse?.title !== "string" || typeof payload.parse.text !== "string") return null;
         const parsed = parsePage(payload, { ...entry, lemma: title });
         if (parsed.meaning) {
           const source = new URL("https://en.wiktionary.org/w/index.php");

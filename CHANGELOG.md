@@ -2,10 +2,14 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
-## Unreleased
+## 1.6.2
 
 ### Fixed
 
+- Start basic translation after a dictionary timeout with its own four-second deadline, while preserving cancellation on a new lookup or direction switch. Do not cache temporary Wiktionary failures as missing definitions; ignore malformed session-cache containers and reject unchanged German translations even when the provider uses combining umlauts. Add fallback adapter and popup integration tests with new words.
+- Recover umlaut noun plurals and doubled-s endings such as **Widersprüchen → Widerspruch**, **Gedächtnissen → Gedächtnis**, and **Verhältnisses → Verhältnis**, while continuing to require source-listed evidence.
+- Recover separable participles with longer particles, including **auseinandergesetzt** and **gegengesteuert**, and regular adjective superlatives such as **unwiderstehlichsten**. Normalize copied combining umlauts before generating lookup routes.
+- Reject table subjects, articles, auxiliaries, and unprefixed stems as evidence for an unrelated dictionary entry. Keep joined and separated verb forms, optional letters, and shortened imperatives supported. Allow at most one additional dictionary request for lowercase words that need both adjective recovery and a third noun guess.
 - Read saved words directly from local storage so opening an empty or existing list does not require a background message receiver. Show saved-list read errors once, and provide a reload instruction if the background worker is unavailable for saving, deletion, or Undo. Keep all changes serialized through the worker to protect the list across popup windows.
 
 ## 1.6.1

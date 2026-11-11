@@ -30,7 +30,7 @@ test('only a missing English gloss triggers fallback and requests are limited to
   assert.equal(found.meaningSource.license, 'CC BY-SA 4.0');
   assert.match(found.meaningSource.url, /title=Lernender&oldid=123/);
   assert.deepEqual(h.calls.map(call => call.title), ['Lernende', 'Lernender']);
-  assert.ok(h.calls.every(call => call.request.credentials === 'omit' && new URL(call.url).origin === 'https://en.wiktionary.org'));
+  assert.ok(h.calls.every(call => call.request.credentials === 'omit' && call.request.referrerPolicy === 'no-referrer' && new URL(call.url).origin === 'https://en.wiktionary.org'));
 });
 
 test('cycles and longer reference chains never exceed two requests', async () => {
@@ -79,4 +79,27 @@ test('Wiktionary title links reject foreign hosts and non-entry namespaces', () 
   assert.equal(context.wiktionaryTitle('https://evil.example/wiki/Lernender'), null);
   assert.equal(context.wiktionaryTitle('/wiki/Category:German'), null);
   assert.equal(context.wiktionaryTitle('javascript:alert(1)'), null);
+});
+
+test('temporary Wiktionary HTTP and API errors can be retried without a poisoned negative cache', async () => {
+  const entry = { lemma: 'Unwägbarkeit', partOfSpeech: 'noun', article: 'die', meaning: '' };
+  for (const first of [
+    { ok: false, status: 429 }, { ok: false, status: 503 },
+    { ok: true, json: async () => ({ error: { code: 'ratelimited', info: 'Try again later' } }) },
+    { ok: true, json: async () => null },
+  ]) {
+    let attempts = 0;
+    const h = harness({}, { fetch: async () => ++attempts === 1 ? first : { ok: true, json: async () => ({ parse: { title: entry.lemma, revid: 456, text: '' }, result: { meaning: 'uncertainty; imponderability', related: [] } }) }, parsePage: payload => payload?.result || { meaning: '', related: [] } });
+    assert.equal(await h.find(entry), null);
+    assert.equal(h.state.meaningCache, undefined);
+    assert.equal((await h.find(entry)).meaning, 'uncertainty; imponderability');
+    assert.equal(attempts, 2);
+  }
+});
+
+test('a malformed stored meaning cache does not block an online definition', async () => {
+  const h = harness({ Unwägbarkeit: { meaning: 'uncertainty', related: [] } });
+  h.state.meaningCache = null;
+  assert.equal((await h.find({ lemma: 'Unwägbarkeit', partOfSpeech: 'noun', article: 'die' }))?.meaning, 'uncertainty');
+  assert.equal(h.calls.length, 1);
 });
