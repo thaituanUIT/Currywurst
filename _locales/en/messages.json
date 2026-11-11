@@ -123,6 +123,9 @@
   "saved_access_error": {
     "message": "Could not access saved words. Please try again."
   },
+  "saved_worker_unavailable": {
+    "message": "Reload Currywurst on your browser's Extensions page to change saved words."
+  },
   "saved_word_required": {
     "message": "A word and its English meaning are required."
   },

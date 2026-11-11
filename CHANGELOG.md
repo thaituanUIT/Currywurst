@@ -2,6 +2,12 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## Unreleased
+
+### Fixed
+
+- Read saved words directly from local storage so opening an empty or existing list does not require a background message receiver. Show saved-list read errors once, and provide a reload instruction if the background worker is unavailable for saving, deletion, or Undo. Keep all changes serialized through the worker to protect the list across popup windows.
+
 ## 1.6.1
 
 ### Added

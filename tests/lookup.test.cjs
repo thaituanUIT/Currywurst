@@ -11,7 +11,7 @@ vm.runInContext(fs.readFileSync('parser.js', 'utf8'), parserContext);
 function makeElement(dataset = {}) {
   return { dataset, value: '', innerHTML: '', listeners: {}, focus() { this.focused = true; }, getAttribute(name) { return this[name] ?? null; }, setAttribute(name, value) { this[name] = value; }, addEventListener(type, fn) { this.listeners[type] = fn; }, querySelectorAll() { return []; }, insertAdjacentHTML(position, html) { this.innerHTML += html; } };
 }
-function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null, locale = {}) {
+function harness(savedState = {}, sessionState = {}, meaningLookup = async () => null, basicLookup = async () => null, locale = {}, sendSavedMessage) {
   const elements = Object.fromEntries(['#word', '#result', '#source', '#search-form', '#mode-toggle', '.search-label', '#back-results', '#retry', '#lookup-tab', '#saved-tab', '#lookup-view', '#saved-view', '#saved-count', '#saved-list', '#saved-status', '#undo-delete', '#save-word', '#save-status'].map(id => [id, makeElement()]));
   const entries = [{ lemma: 'klein', label: 'klein', partOfSpeech: 'adjective', meaning: 'small, little', url: 'https://www.verbformen.com/declension/adjectives/klein.htm' }];
   const entryButton = makeElement({ entry: '0' });
@@ -55,7 +55,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
     }
     return [];
   };
-  const requests = [], saved = [];
+  const requests = [], saved = [], savedMessages = [];
   const context = vm.createContext({
     document: { documentElement: { dataset: {} }, querySelectorAll: () => [], querySelector: id => elements[id] }, window: {},
     chrome: { i18n: browserI18n(locale), storage: {
@@ -84,6 +84,8 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   context.createBasicTranslationFallback = () => basicLookup;
   const store = context.createSavedWordsStore(context.chrome.storage.local);
   context.chrome.runtime = { sendMessage: async message => {
+    savedMessages.push(message);
+    if (sendSavedMessage) return sendSavedMessage(message);
     try {
       const argument = message.action === 'remove' ? message.id : message.entry;
       return { ok: true, ...await store[message.action](argument) };
@@ -92,7 +94,7 @@ function harness(savedState = {}, sessionState = {}, meaningLookup = async () =>
   vm.runInContext(fs.readFileSync('lookup.js', 'utf8'), context);
   vm.runInContext(fs.readFileSync('popup.js', 'utf8'), context);
   const respond = (index) => requests[index].resolve({ ok: true, text: async () => '', url: requests[index].url });
-  return { context, elements, requests, saved, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons };
+  return { context, elements, requests, saved, savedMessages, respond, entryButton, variantButton, sessionState, savedState, savedWordButtons: () => savedWordButtons, deleteButtons: () => deleteButtons, degreeButtons: () => degreeButtons, choiceButtons: () => choiceButtons, nounButtons: () => nounButtons };
 }
 
 test('latest search wins and manual searches persist', async () => {
@@ -635,6 +637,68 @@ test('switching a noun gender loads the chosen entry and preserves the original 
 });
 
 const germanEntry = (lemma, extra = {}) => ({ word: lemma, lemma, meaning: 'English meaning', partOfSpeech: 'noun', article: 'die', ipa: [], audio: [], inflectionTables: [], ...extra });
+
+test('empty saved lists load and reopen without a background message receiver', async () => {
+  for (const state of [{}, { savedWords: [] }]) {
+    const h = harness(state, {}, undefined, undefined, {}, async () => {
+      throw new Error('Could not establish connection. Receiving end does not exist.');
+    });
+    await tick();
+    for (let visit = 0; visit < 2; visit++) {
+      h.elements['#saved-tab'].listeners.click();
+      await tick();
+      assert.match(h.elements['#saved-list'].innerHTML, /No saved words yet/);
+      assert.equal(h.elements['#saved-count'].textContent, '0/100');
+      assert.equal(h.elements['#saved-status'].textContent, '');
+      h.elements['#lookup-tab'].listeners.click();
+    }
+    assert.equal(h.savedMessages.length, 0);
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.saved.length, 0);
+  }
+});
+
+test('saved words remain readable when the background receiver is unavailable', async () => {
+  const h = harness({ savedWords: [germanEntry('Bruder', { article: 'der' })] }, {}, undefined, undefined, {}, async () => {
+    throw new Error('Could not establish connection. Receiving end does not exist.');
+  });
+  await tick();
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.match(h.elements['#saved-list'].innerHTML, /der Bruder/);
+  assert.equal(h.elements['#saved-count'].textContent, '1/100');
+  assert.equal(h.savedMessages.length, 0);
+  await h.deleteButtons()[0].listeners.click();
+  assert.equal(h.savedState.savedWords.length, 1);
+  assert.match(h.elements['#saved-list'].innerHTML, /der Bruder/);
+  assert.match(h.elements['#saved-status'].textContent, /Reload Currywurst/);
+  assert.doesNotMatch(h.elements['#saved-status'].textContent, /Receiving end/);
+  assert.equal(h.savedMessages.length, 1);
+});
+
+test('saving without a background receiver reports recovery and never writes from the popup', async () => {
+  for (const reply of [async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); }, async () => undefined]) {
+    const h = harness({}, {}, undefined, undefined, {}, reply);
+    await tick();
+    h.context.renderGermanEntry(germanEntry('Haus'));
+    await h.context.saveCurrentWord();
+    assert.match(h.elements['#save-status'].textContent, /Reload Currywurst/);
+    assert.equal(h.elements['#save-word'].textContent, 'Save');
+    assert.equal(h.savedState.savedWords, undefined);
+    assert.equal(h.savedMessages.length, 1);
+  }
+});
+
+test('saved-list read failures appear once and do not claim the list is empty', async () => {
+  const state = {};
+  Object.defineProperty(state, 'savedWords', { enumerable: true, get() { throw new Error('Storage unavailable'); } });
+  const h = harness(state);
+  await tick();
+  h.elements['#saved-tab'].listeners.click();
+  await tick();
+  assert.equal(h.elements['#saved-status'].textContent, 'Storage unavailable');
+  assert.doesNotMatch(h.elements['#saved-list'].innerHTML, /Storage unavailable|No saved words yet|Loading saved words/);
+});
 
 test('save stores the lemma and English meaning once, with an offline list after reopening', async () => {
   const state = {};
