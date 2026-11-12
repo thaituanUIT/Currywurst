@@ -1,21 +1,26 @@
 import { dictionaryEntryUrl } from "../shared/dictionary-sources";
 import { parseVerbformen, parseGermanSearchEntries, isGermanEntryMatch, mergeEntryChoices } from "./parser";
 import type { DictionaryEntry, EntryChoice, NounVariant, LoadPage, PageCache, ResolvedEntry } from "../shared/dictionary-types";
+import { analyzeGermanVerbPhrase, verbPhraseInfinitives, verbPhraseSearchForm } from './verb-structure';
 
 // Resolve the requested word and verify its dictionary form.
 // These are bounded fallbacks, not a crawl.
 async function resolveGermanEntry(word: string, loadPage: LoadPage, signal: AbortSignal, { recover = true, cache = new Map() }: { recover?: boolean; cache?: PageCache } = {}, parsers: LookupParsers = defaultParsers): Promise<ResolvedEntry | null> {
   const { parseVerbformen, parseGermanSearchEntries } = parsers;
   const normalizedWord = word.normalize("NFC");
+  const phrase = analyzeGermanVerbPhrase(word);
   const nounSelection = /^\p{Lu}/u.test(normalizedWord);
   const nounStems = germanNounCandidates(normalizedWord);
   const adjectiveCandidates = germanAdjectiveCandidates(word);
   const finiteVerbCandidates = germanPastTenseCandidates(word);
   const regularVerbCandidates = germanRegularVerbCandidates(word);
-  // Keep form recovery bounded: at most eight dictionary requests, or nine
-  // for a lowercase selection needing both adjective and three noun guesses.
-  const requestLimit = 6 + Math.max(adjectiveCandidates.length, finiteVerbCandidates.length, regularVerbCandidates.length)
+  // Phrases share a nine-request cap. Single-word recovery keeps its existing
+  // bound, including room for lowercase adjective and noun guesses.
+  const requestLimit = phrase ? 9 : 6 + Math.max(adjectiveCandidates.length, finiteVerbCandidates.length, regularVerbCandidates.length)
     + Number(!nounSelection && nounStems.length > 2);
+  const withPhrase = (data: DictionaryEntry): DictionaryEntry => ({ ...data, word,
+    ...(phrase?.pronoun ? { grammarTags: [...new Set([...(data.grammarTags || []), 'reflexive'])] } : {}),
+  });
   const load = async (url: string) => {
     signal.throwIfAborted();
     if (!cache.has(url)) {
@@ -35,10 +40,10 @@ async function resolveGermanEntry(word: string, loadPage: LoadPage, signal: Abor
       const full = await load(fullUrl);
       if (full) {
         const parsed = parseVerbformen(full.html, word, full.sourceUrl);
-        if (isGermanEntryMatch(parsed, word)) return { data: { ...parsed, variants: mergeNounVariants(parsed, data.variants || []), entryChoices: mergeEntryChoices(parsed.entryChoices, data.entryChoices) }, sourceUrl: full.sourceUrl };
+        if (isGermanEntryMatch(parsed, word)) return { data: withPhrase({ ...parsed, variants: mergeNounVariants(parsed, data.variants || []), entryChoices: mergeEntryChoices(parsed.entryChoices, data.entryChoices) }), sourceUrl: full.sourceUrl };
       }
     }
-    return data.linkOnly ? null : { data: { ...data, word }, sourceUrl };
+    return data.linkOnly ? null : { data: withPhrase(data), sourceUrl };
   };
   const inspect = async (url: string): Promise<ResolvedEntry | null> => {
     const page = await load(url);
@@ -70,6 +75,19 @@ async function resolveGermanEntry(word: string, loadPage: LoadPage, signal: Abor
   };
   const direct = await inspect(`https://www.verbformen.com/?w=${encodeURIComponent(normalizedWord)}&l=11`);
   if (direct || !recover) return direct;
+  if (phrase) {
+    const form = verbPhraseSearchForm(phrase);
+    const joined = await inspect(`https://www.verbformen.com/?w=${encodeURIComponent(form)}&l=11`);
+    if (joined) return joined;
+    const candidates = [...new Set([...verbPhraseInfinitives(phrase), ...germanPastTenseCandidates(form), ...germanRegularVerbCandidates(form)])];
+    for (const candidate of candidates) {
+      const slug = verbformenSlug(candidate);
+      if (!slug) continue;
+      const found = await inspect(`https://www.verbformen.com/conjugation/${slug}.htm`);
+      if (found) return found;
+    }
+    return inspect(`https://www.verbformen.com/conjugation/?w=${encodeURIComponent(form)}&l=11`);
+  }
   for (const path of [nounSelection ? "declension/nouns/" : "conjugation/", "search/"]) {
     const found = await inspect(`https://www.verbformen.com/${path}?w=${encodeURIComponent(normalizedWord)}&l=11`);
     if (found) return found;

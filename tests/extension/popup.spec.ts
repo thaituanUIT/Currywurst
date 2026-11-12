@@ -135,3 +135,33 @@ test('the worker serializes concurrent mutations from two popups and validates u
   expect(await worker.evaluate(() => chrome.runtime.getManifest().permissions)).toEqual(manifest.permissions);
   await second.close();
 });
+
+test('typed and selected verb phrases resolve, show source grammar, and save the dictionary lemma', async ({ popup, popupUrl, extension, worker }) => {
+  const reflexive = '<main><h1>Conjugation of German verb freuen</h1><p>A1 · regular · haben</p><p lang="en">be happy, look forward to</p><p><span title="with accusative of reflexive pronoun (mich)">sich+A</span></p><h2>Present</h2><table><tr><td>ich</td><td>freue</td></tr><tr><td>du</td><td>freust</td></tr><tr><td>er</td><td>freut</td></tr></table></main>';
+  const combined = '<main><h1>Conjugation of German verb anziehen</h1><p>A1 · irregular · haben · separable</p><p lang="en">dress, put on</p><p><span title="with accusative of reflexive pronoun (mich)">sich+A</span></p><h2>Present</h2><table><tr><td>ich</td><td>ziehe</td><td>an</td></tr><tr><td>du</td><td>ziehst</td><td>an</td></tr><tr><td>er</td><td>zieht</td><td>an</td></tr></table></main>';
+  const requests: string[] = [];
+  await extension.route('https://www.verbformen.com/**', route => {
+    const url = new URL(route.request().url());
+    requests.push(url.href);
+    const query = url.searchParams.get('w') || url.pathname;
+    const body = query === 'freue mich' ? '<h1>All German words</h1>' : query.includes('freu') ? reflexive : combined;
+    return route.fulfill({ contentType: 'text/html', body });
+  });
+  await popup.goto(popupUrl);
+  await popup.locator('#word').fill('freue mich');
+  await popup.locator('#word').press('Enter');
+  await expect(popup.locator('.word-title')).toHaveText('freuen');
+  await expect(popup.locator('.grammar')).toContainText('reflexive');
+  await expect(popup.locator('[data-speak="freue mich"]')).toBeVisible();
+  expect(requests).toHaveLength(2);
+  await popup.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(popup.locator('#saved-count')).toHaveText('1/100');
+  expect(await worker.evaluate(async () => (await chrome.storage.local.get('savedWords')).savedWords[0].lemma)).toBe('freuen');
+  await worker.evaluate(async () => { await chrome.storage.session.set({ pendingLookup: { word: 'zieht sich an', hint: 'de', createdAt: Date.now() } }); });
+  await popup.reload();
+  await expect(popup.locator('.word-title')).toHaveText('anziehen');
+  await expect(popup.locator('.grammar')).toContainText('separable');
+  await expect(popup.locator('.grammar')).toContainText('reflexive');
+  await expect(popup.locator('#word')).toHaveValue('zieht sich an');
+  expect(requests.length).toBeLessThanOrEqual(11);
+});

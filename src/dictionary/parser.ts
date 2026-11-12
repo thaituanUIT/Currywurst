@@ -1,5 +1,9 @@
+import { normalizeGermanForm, expandGermanForms } from "./german-forms";
+import { analyzeGermanVerbPhrase, matchesGermanVerbPhrase, matchesReflexiveVerbForm } from "./verb-structure";
 import { dictionaryEntryUrl, dictionaryEntryType } from "../shared/dictionary-sources";
 import type { DictionaryEntry, InflectionTable, EntryChoice, ComparisonVariant, NounVariant, SearchEntry } from "../shared/dictionary-types";
+
+export { normalizeGermanForm, expandGermanForms } from "./german-forms";
 
 type DictionaryRoot = Element | DocumentFragment;
 type CandidateTable = InflectionTable & { node?: HTMLTableElement };
@@ -43,6 +47,7 @@ export function parseVerbformen(html: string, word: string, sourceUrl: string): 
   });
   const grammarLine = summaryNode ? cleanText(summaryNode.textContent) : lines.find((line) => summaryPattern.test(line)) || "";
   const { level, partOfSpeech, grammarTags } = parseGrammarSummary(grammarLine, title);
+  const reflexiveCases = partOfSpeech === 'verb' ? extractReflexiveCases(main) : [];
   const comparisonVariants = partOfSpeech === "adjective" ? extractComparisonVariants(doc, sourceUrl) : [];
   const positive = comparisonVariants.find(variant => variant.degree === "positive");
   if (positive) lemma = positive.form;
@@ -112,6 +117,7 @@ export function parseVerbformen(html: string, word: string, sourceUrl: string): 
     partOfSpeech,
     grammar,
     grammarTags,
+    reflexiveCases,
     principalParts,
     meaning,
     forms,
@@ -174,7 +180,24 @@ export function extractLemma(title: string, fallback: string) {
   const match = title.replace(/\s+/g, " ").match(new RegExp(`\\b(${DICTIONARY_WORD_TYPES})\\s+(.+?)(?:\\s+with plural\\b.*|\\s*⟨.*|$)`, "iu"));
   if (!match) return fallback;
   const lemma = cleanHeadword(match[2]).replace(/^(?:der|die|das)\s+/i, "");
-  return match[1].toLowerCase() === "verb" ? lemma.replace(/\s+/g, "") : lemma;
+  if (match[1].toLowerCase() !== 'verb') return lemma;
+  return joinVerbLemma(lemma);
+}
+
+function joinVerbLemma(lemma: string): string {
+  return /^sich\s+/i.test(lemma) ? `sich ${lemma.replace(/^sich\s+/i, '').replace(/\s+/g, '')}` : lemma.replace(/\s+/g, '');
+}
+
+export function extractReflexiveCases(root: DictionaryRoot): ('accusative' | 'dative')[] {
+  const cases = new Set<'accusative' | 'dative'>();
+  const headings = [...root.querySelectorAll('h2,h3,h4,h5')];
+  for (const node of root.querySelectorAll('[title]')) {
+    const title = node.getAttribute('title') || '';
+    const match = title.match(/^with (accusative|dative) of reflexive pronoun\b/i);
+    if (!match || headingPathFor(node, headings).some(title => /\b(?:examples|sentences)\b/i.test(title))) continue;
+    cases.add(match[1].toLowerCase() as 'accusative' | 'dative');
+  }
+  return [...cases];
 }
 
 export function cleanHeadword(value: string | null) {
@@ -240,7 +263,7 @@ export function extractWordTypeVariants(doc: DictionaryRoot, lemma: string, part
     if (type === partOfSpeech || dictionaryEntryType(url) !== type) return [];
     const label = match[2];
     let headword = label.replace(/^(?:der|die|das)\s+/i, "").replace(/,\s*(?:der|die|das)$/i, "");
-    if (type === "verb") headword = headword.replace(/\s+/g, "");
+    if (type === "verb") headword = joinVerbLemma(headword);
     if (!/^[\p{L}]+(?:[ '-][\p{L}]+)*$/u.test(headword)) return [];
     const article = label.match(/(?:^|,\s*)(der|die|das)(?:\s|$)/i)?.[1];
     return [{ lemma: headword, partOfSpeech: type, label: `${type} · ${article ? `${article} ${headword}` : headword}`, url }];
@@ -333,29 +356,15 @@ export function englishGlossMatches(gloss: string, query: string) {
   return Boolean(needle) && gloss.split(/[,;]+/).some((sense) => normalize(sense) === needle);
 }
 
-export function normalizeGermanForm(value: unknown) {
-  return String(value).normalize("NFC").toLocaleLowerCase("de-DE")
-    .replace(/[·⁰¹²³⁴⁵⁶⁷⁸⁹]/g, "").replace(/[„“”"']/g, "").replace(/\s+/g, " ").trim();
-}
-
-export function expandGermanForms(value: string) {
-  let forms = [normalizeGermanForm(value).replace(/\((?:du|ihr|sie|wir)\)/gi, "").trim()];
-  // Parentheses indicate optional letters: geh(e), aß(es)t, and(e)r(e)n.
-  for (let depth = 0; depth < 5 && forms.some((form) => /\([\p{L}]+\)/u.test(form)); depth++) {
-    forms = forms.flatMap((form) => {
-      const match = form.match(/\(([\p{L}]+)\)/u);
-      return match ? [form.replace(match[0], ""), form.replace(match[0], match[1])] : [form];
-    }).slice(0, 32);
-  }
-  return [...new Set(forms.flatMap((form) => form.split(/\s*[/;]\s*/)).map((form) => form.trim()).filter(Boolean))];
-}
-
 export function isGermanEntryMatch(entry: Partial<DictionaryEntry>, word: string) {
   const knownTitle = new RegExp(`\\b(?:${DICTIONARY_WORD_TYPES})\\s+`, "i").test(entry.title || "");
   if (!knownTitle || (!entry.meaning && !entry.inflectionTables?.length && !dictionaryEntryUrl(entry.sourceUrl, "https://www.verbformen.com/"))) return false;
   const query = normalizeGermanForm(word);
   if (!query) return false;
   const verb = entry.partOfSpeech === "verb" || /\bverb\s/i.test(entry.title || "");
+  const phrase = analyzeGermanVerbPhrase(word);
+  if (phrase) return verb && matchesGermanVerbPhrase(entry, phrase);
+  if (verb && matchesReflexiveVerbForm(entry, word)) return true;
   const auxiliary = /^(?:hab(?:e|en|t|est|et)|hast|hat|hatt(?:e|est|et|en)|hätt(?:e|est|et|en)|bin|bist|ist|sind|seid|sei(?:est|et|en)?|war(?:st|t|en)?|wär(?:e|est|et|en)|werd(?:e|en|et)|wirst|wird|wurd(?:e|est|et|en)|würd(?:e|est|et|en)|sein)$/i;
   const withoutAuxiliaries = (form: string) => {
     const words = form.split(" ");

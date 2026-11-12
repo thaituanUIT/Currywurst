@@ -2,7 +2,11 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
-## Unreleased
+## 1.7.0
+
+### Added
+
+- Resolve typed or selected German reflexive and separable verb phrases, including combined forms such as **zieht sich an**. Validate the original verb form, particle, reflexive case, and available person evidence against dictionary data; preserve the selected phrase and dictionary lemma. Recover candidate spellings within a shared nine-request budget without reading surrounding page text.
 
 ### Changed
 

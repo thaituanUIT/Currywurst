@@ -40,13 +40,13 @@
     "message": "Undo"
   },
   "search_german_label": {
-    "message": "YOUR GERMAN WORD"
+    "message": "YOUR GERMAN WORD OR VERB PHRASE"
   },
   "search_english_label": {
     "message": "YOUR ENGLISH WORD"
   },
   "german_word_label": {
-    "message": "German word"
+    "message": "German word or verb phrase"
   },
   "english_word_label": {
     "message": "English word"
@@ -61,7 +61,7 @@
     "message": "Click to reverse direction"
   },
   "empty_lookup_hint": {
-    "message": "Type a word, or select text and right-click to look it up."
+    "message": "Type a word or German verb phrase, or select text and right-click to look it up."
   },
   "restored_lookup_hint": {
     "message": "Press Look up to search this word again."

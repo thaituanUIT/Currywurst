@@ -63,6 +63,7 @@ export interface DictionaryEntry {
   matchedForm?: string;
   grammar?: string;
   grammarTags?: string[];
+  reflexiveCases?: ('accusative' | 'dative')[];
   principalParts?: string;
   forms?: Record<string, string>;
   headwordForms?: string[];

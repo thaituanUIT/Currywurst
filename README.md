@@ -42,7 +42,7 @@ For a source checkout, use Node.js 24 or newer, run `npm ci` and `npm run build`
 ## Look up a word
 
 1. Open a webpage that contains German or English text.
-2. Select one word.
+2. Select a word or a short German verb phrase.
 3. Right-click the selection and choose **Look up with Currywurst**. The extension uses the page's language and dictionary matches to choose the lookup direction automatically.
 4. The lookup card shows the word and its meaning. Use the speaker buttons to hear the selected word and its dictionary form when they differ.
 5. English searches show a list of German matches. Click a match to open its grammar, then **Back to results** to return to the list.
@@ -53,6 +53,8 @@ You can also open the extension from the Extensions menu and type a word into th
 When you reopen the popup, your last word stays in the search box. Click **Look up** to search it again. Opening the popup alone does not send another dictionary request, including after a browser restart.
 
 Some words, such as “Gift” or “Bank”, exist in both languages. If the automatic choice is wrong, click the language button to reverse the direction and look up the word again.
+
+German lookup also recognizes reflexive and separable verb phrases: **freue mich → freuen**, **steht auf → aufstehen**, and **zieht sich an → anziehen**. You can include a leading personal subject and common modifiers, for example **ich freue mich** or **er steht früh auf**. The selected phrase remains available for pronunciation; saving keeps the dictionary's lemma. Reflexive matches are labelled in the grammar tags. Prefixes, pronouns, and verb forms must be supported by the dictionary entry. This is a bounded verb-phrase lookup, so arbitrary sentences, multiple clauses, and ambiguous constructions may need a shorter selection. Only the text you type or select is used; Currywurst does not read the surrounding sentence.
 
 Some nouns have more than one article. When article buttons appear, such as **die Vokabel** and **das Vokabel**, click one to see its meaning, usage notes, and word forms.
 
@@ -80,7 +82,7 @@ Saved basic translations retain their MyMemory attribution and the selected word
 
 ## If something goes wrong
 
-- **The lookup does not open:** Make sure a single word is selected, then right-click it again.
+- **The lookup does not open:** Make sure a word or short verb phrase is selected, then right-click it again.
 - **No result appears:** Check your internet connection and try the lookup again. Verbformen must be reachable.
 - **The speaker does not sound like a recording:** When a recording is unavailable, the browser uses a speech voice in the word's language instead. Available voices depend on your computer.
 - **The extension changed but the browser still shows the old version:** Open the Extensions page and click the reload button on the Currywurst card.

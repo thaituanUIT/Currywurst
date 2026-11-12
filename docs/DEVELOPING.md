@@ -9,17 +9,17 @@ npm ci
 npm run build
 ```
 
-The output version comes from `manifest.json` (currently `1.6.2`). Load `dist/<version>/extension/` using **Load unpacked** in Chrome or Edge. The repository root is source code and cannot be loaded directly. Release ZIPs already contain the compiled extension and need no Node.js installation.
+The output version comes from `manifest.json` (currently `1.7.0`). Load `dist/<version>/extension/` using **Load unpacked** in Chrome or Edge. The repository root is source code and cannot be loaded directly. Release ZIPs already contain the compiled extension and need no Node.js installation.
 
 For an existing installation, preserve its installed folder path when replacing files with a release ZIP or build output. If the installation used the repository root, build from a separate checkout and copy that checkout's `dist/<version>/extension/` contents into the existing installed folder. Develop in the separate checkout so installing a build cannot overwrite its source `popup.html`. Loading a new folder path can create a different extension identity and storage area.
 
 Each version groups its unpacked extension and release files together:
 
 ```text
-dist/1.6.2/
+dist/1.7.0/
   extension/
-  Currywurst-1.6.2.zip
-  Currywurst-1.6.2.zip.sha256
+  Currywurst-1.7.0.zip
+  Currywurst-1.7.0.zip.sha256
   release-notes.md
 ```
 
