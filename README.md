@@ -14,7 +14,7 @@ See [lookup coverage notes](https://github.com/thaituanUIT/Currywurst/blob/main/
 
 ## Install the extension
 
-Download the **Currywurst ZIP** under **Assets** on the [latest release page](https://github.com/thaituanUIT/Currywurst/releases/latest) and extract it. If the first release is not available yet, use **Code → Download ZIP** on this repository.
+Download the **Currywurst ZIP** under **Assets** on the [latest release page](https://github.com/thaituanUIT/Currywurst/releases/latest) and extract it. GitHub's source archives require the build steps in [Developing Currywurst](docs/DEVELOPING.md).
 
 Keep the extracted folder in a permanent location; your browser loads the extension from it.
 
@@ -37,7 +37,7 @@ For notifications, sign in to GitHub and choose **Watch → Custom → Releases*
 
 Automatic extension updates will be available through the future Chrome Web Store or Microsoft Edge Add-ons version. Its installation link will be added here when available. You will need to install that store version to receive automatic updates.
 
-If you installed with Git, pull the latest changes and reload the extension. Maintainers can follow [Publishing a GitHub release](https://github.com/thaituanUIT/Currywurst/blob/main/docs/RELEASING.md) for the automated release process.
+For a source checkout, use Node.js 24 or newer, run `npm ci` and `npm run build`, and load `dist/<version>/extension/`. Run `npm run dev` to rebuild while editing. Keep an existing installation's folder path when updating so its local vocabulary stays available; [Developing Currywurst](docs/DEVELOPING.md) explains updating installations that previously loaded the repository root. Maintainers can follow [Publishing a GitHub release](https://github.com/thaituanUIT/Currywurst/blob/main/docs/RELEASING.md) for the automated release process.
 
 ## Look up a word
 

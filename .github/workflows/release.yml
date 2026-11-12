@@ -31,17 +31,19 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-          package-manager-cache: false
+          cache: npm
 
-      - name: Check JavaScript syntax and run tests
-        run: |
-          set -euo pipefail
-          for file in dictionary-sources.js i18n.js background.js parser.js lookup.js saved-words.js meaning.js popup.js scripts/package-release.mjs; do
-            node --check "$file"
-          done
-          for file in tests/*.test.cjs; do
-            node "$file"
-          done
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check types, lint, test, and build
+        run: npm run check
+
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Test the packaged extension
+        run: npm run test:extension
 
       - name: Prepare release files
         id: package

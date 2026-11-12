@@ -2,6 +2,14 @@
 
 Major features and fixes in Currywurst. Version numbers follow the extension manifest; no release dates are assumed.
 
+## Unreleased
+
+### Changed
+
+- Migrate the extension to strict TypeScript modules and a React popup, retaining dictionary lookup, source verification, pronunciation, localization, saved-word storage, and the existing design.
+- Build the popup and background worker with Vite. Source installations now require Node.js 24+, `npm ci`, and `npm run build`; load `dist/<version>/extension/`. Release ZIPs remain ready to load.
+- Run the existing behavior and HTML parser fixtures automatically with Vitest and React DOM tests, and verify extracted release ZIPs in Chromium. Package only compiled runtime assets, catalogs, icons, and release documents.
+
 ## 1.6.2
 
 ### Fixed

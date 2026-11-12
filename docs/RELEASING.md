@@ -4,28 +4,25 @@ The [release workflow](../.github/workflows/release.yml) publishes a release whe
 
 ## Publish a version
 
-1. Finish and review the changes. Update `manifest.json` and add the matching version section to `CHANGELOG.md`.
-2. Run the checks locally:
+1. Finish and review the changes. Update `manifest.json` and add the matching version section to `CHANGELOG.md`. Run `npm version <version> --no-git-tag-version` with the same version to update `package.json` and `package-lock.json` without creating a release tag yet.
+2. Use Node.js 24 or newer. Keep `package.json`'s version equal to `manifest.json`, install the locked dependencies, and run the checks locally:
 
    ```sh
-   node tests/parser-logic.test.cjs
-   node tests/i18n.test.cjs
-   node tests/lookup-routing.test.cjs
-   node tests/lookup.test.cjs
-   node tests/saved-words.test.cjs
-   node tests/meaning.test.cjs
-   node tests/translation.test.cjs
-   node tests/release.test.cjs
+   npm ci
+   npm run check
+   npx playwright install chromium
+   npm run test:extension
    ```
 
-3. Open `tests/parser.html` in a browser and test the unpacked extension in Chrome and Edge. The automated tests do not cover the live dictionary or full browser behavior.
-4. Optionally preview the package and release notes locally (requires Node.js, `zip`, and `unzip`):
+3. Load `dist/<version>/extension/` in Chrome and Edge and check live dictionary responses, pronunciation, and popup behavior. Parser HTML fixtures now run automatically under Vitest; Playwright checks the extracted ZIP with controlled network responses. See [Developing Currywurst](DEVELOPING.md) for architecture, watch mode, and storage-preserving upgrades.
+4. Preview the package and release notes locally (requires Node.js, `zip`, and `unzip`). Build before packaging to include current source and static assets:
 
    ```sh
-   node scripts/package-release.mjs v1.2.1
+   npm run build
+   npm run package -- v1.2.1
    ```
 
-   Inspect `dist/Currywurst-1.2.1.zip` and `dist/release-notes.md`. The ZIP has `manifest.json` at its root. Development files, Git history, and local configuration are excluded.
+   Inspect `dist/1.2.1/Currywurst-1.2.1.zip` and `dist/1.2.1/release-notes.md`. The ZIP has `manifest.json` at its root. It packages compiled popup/worker code, generated JS/CSS from the Vite manifest, locale catalogs, icons, README, and changelog. Development files, source maps, Git history, local configuration, and stale build assets are excluded. A missing build or manifest mismatch stops packaging. Building cleans only `dist/<version>/extension/`, so existing release archives remain available.
 5. Commit and push the finished changes, including the workflow. Tag that commit and push the tag:
 
    ```sh

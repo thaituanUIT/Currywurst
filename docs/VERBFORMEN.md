@@ -6,7 +6,7 @@ Research and implementation notes for the public Verbformen website, reviewed on
 
 Verbformen can link to word entries on `https://www.woerter.net/`. Confirmed source examples include [ohne as a conjunction](https://www.woerter.net/conjunctions/ohne.htm) and [ohne as a preposition](https://www.woerter.net/prepositions/ohne.htm). These pages provide the same English-labelled meaning and compact grammar/IPA structure used by the parser. Their headings use “Definition of German …”.
 
-`dictionary-sources.js` shares the request and word-entry URL checks between the popup, parser, and storage worker. Verbformen search routes remain allowed; Woerter.net is restricted to named word-type routes with `.htm` entries and their `meanings`/`translations` subpages. Arbitrary Woerter.net pages, other domains, insecure schemes, and credential-bearing URLs are rejected. Definition subpages canonicalize to the full word entry.
+`src/shared/dictionary-sources.ts` shares the request and word-entry URL checks between the popup, parser, and storage worker. Verbformen search routes remain allowed; Woerter.net is restricted to named word-type routes with `.htm` entries and their `meanings`/`translations` subpages. Arbitrary Woerter.net pages, other domains, insecure schemes, and credential-bearing URLs are rejected. Definition subpages canonicalize to the full word entry.
 
 Compact exact candidate links are recognized without requiring a full search card. Their route identifies the word type, but their definition must be fetched and verified against the original selection before display. A missing definition can fall through to another matching candidate; candidate pages are not fetched in bulk. Word-type alternatives from definition pages remain available on demand. The footer and saved source URLs retain the actual provider, and recordings can come from either dictionary host.
 
@@ -84,22 +84,19 @@ Temporary Wiktionary HTTP errors, API errors, and malformed responses are not ca
 
 ## Verification and limits
 
-The published pages above were reviewed. Lookup and matching behavior is covered by local tests with controlled responses; parser fixtures are in `tests/parser.html`. Live query URLs could not be independently exercised in the research browser, and the local browser runner was blocked by the execution sandbox. These checks therefore do not establish that every current live entry parses correctly.
+The published pages above were reviewed. Lookup and matching behavior is covered by local tests with controlled responses; the former browser-only parser fixtures now run automatically in `tests/unit/parser-dom.test.ts`. The React migration also adds packaged-extension browser checks under `tests/extension/`. Controlled responses establish parser/UI behavior, not the availability or shape of every current live dictionary entry.
 
-The additional audit corpus in `tests/difficult-words.test.cjs` uses words absent from the earlier tests. It reproduces failed recovery routes, exercises lowercase and combining-umlaut selections, checks irregular subjunctives and inserted `zu`, and rejects unverified candidates. Source forms were checked against the linked dictionary pages; the response objects are controlled fixtures, not downloaded HTML. Each lookup asserts the request cap and rejects duplicate fetches. The test file is included automatically in the release workflow's `tests/*.test.cjs` run.
+The additional audit corpus in `tests/unit/difficult-words.test.ts` uses words absent from the earlier tests. It reproduces failed recovery routes, exercises lowercase and combining-umlaut selections, checks irregular subjunctives and inserted `zu`, and rejects unverified candidates. Source forms were checked against the linked dictionary pages; the response objects are controlled fixtures, not downloaded HTML. Each lookup asserts the request cap and rejects duplicate fetches. It runs automatically with `npm test` and in CI.
 
-Fallback tests also use fresh words such as `Zweckentfremdung`, `Unwägbarkeit`, `Unverhältnismäßigkeit`, and `Torschlusspanik`. Adapter-to-popup checks exercise no-entry translation, dictionary timeouts, cancellation after a timeout, provider attribution, saving, and grammar preservation for a verified entry missing its meaning. API responses and parsed Wiktionary definitions are controlled; these tests do not establish live API availability or execution of the browser-only HTML parser fixtures.
+Fallback tests also use fresh words such as `Zweckentfremdung`, `Unwägbarkeit`, `Unverhältnismäßigkeit`, and `Torschlusspanik`. Adapter-to-popup checks exercise no-entry translation, dictionary timeouts, cancellation after a timeout, provider attribution, saving, and grammar preservation for a verified entry missing its meaning. API responses and parsed Wiktionary definitions are controlled; these tests do not establish live API availability.
 
 No finite set of suffix rules covers every German spelling, rare form, ambiguous word, or future website change. Unknown forms are left unmatched rather than accepting an unrelated page. Source-provided variants are preferred over guesses.
 
 Run the executable checks from the project directory:
 
 ```sh
-node tests/parser-logic.test.cjs
-node tests/difficult-words.test.cjs
-node tests/lookup-routing.test.cjs
-node tests/lookup.test.cjs
-node tests/meaning.test.cjs
+npm run check
+npm run test:extension
 ```
 
-Open `tests/parser.html` in a browser to run the DOM-based parser fixtures.
+Install the Playwright Chromium browser before the extension suite (`npx playwright install chromium`). Parser DOM fixtures run under jsdom as part of `npm test`.
